@@ -1,0 +1,14 @@
+{
+  "name": "azuracast-plugins/azuracast-animateurs-virtuels",
+  "description": "Animateurs virtuels pour AzuraCast : textes écrits par DeepSeek, voix ElevenLabs, fond musical mixé, planifiés par tranches horaires.",
+  "type": "azuracast-plugin",
+  "license": "MIT",
+  "require": {
+    "php": "^8.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Plugin\\AzuracastAnimateursVirtuels\\": "src/"
+    }
+  }
+}
