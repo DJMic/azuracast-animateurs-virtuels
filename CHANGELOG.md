@@ -1,5 +1,22 @@
 # Changements
 
+## 1.2.0 – 2026-11-16
+
+- **Eleven v4** ajouté à la liste des modèles de voix et recommandé. C'est le modèle par défaut des nouvelles stations. Sur une station existante, choisissez-le dans « Services IA ».
+- **Écriture radio**, option activée par défaut dans « Consignes générales ». DeepSeek reçoit des règles d'écriture pour l'oreille :
+  - syntaxe orale ;
+  - idées reliées par des virgules, des tirets ou des points de suspension plutôt qu'une série de phrases fermées par un point ;
+  - exclamations et questions.
+
+  Ces règles s'adaptent au modèle de voix :
+  - avec Eleven v4 et v3 : une ou deux indications de jeu en anglais entre crochets (`[warmly]`, `[chuckles]`…) ;
+  - avec les autres modèles : une ou deux pauses `<break time="…" />`.
+- Nettoyage du texte adapté au modèle :
+  - avec v3 et v4, 3 indications de jeu au maximum, et aucune balise `<break>`, que ces modèles ne comprennent pas ;
+  - avec les autres modèles, 2 pauses au maximum, de 0,2 à 3 secondes, et plus aucune indication entre crochets ;
+  - les autres balises sont retirées dans tous les cas.
+- La typographie française (espace avant « ! » et « ? ») est conservée dans les textes.
+
 ## 1.1.0 – 2026-11-16
 
 - **Bibliothèque de clips réutilisables**, pour réduire les appels à DeepSeek et à ElevenLabs avec le temps :

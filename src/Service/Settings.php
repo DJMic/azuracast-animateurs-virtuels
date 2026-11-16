@@ -41,10 +41,11 @@ final class Settings
             ],
             'elevenlabs' => [
                 'api_key' => '',
-                'model_id' => 'eleven_multilingual_v2',
+                'model_id' => 'eleven_v4',
                 'language_code' => 'fr',
             ],
             'system_prompt' => self::DEFAULT_SYSTEM_PROMPT,
+            'radio_style' => true,
             'avoid_repeat' => 3,
             'bed' => [
                 'enabled' => true,
@@ -186,6 +187,7 @@ final class Settings
 
         $out['system_prompt'] = self::text($input['system_prompt'] ?? '', 6000, true) ?: self::DEFAULT_SYSTEM_PROMPT;
         $out['avoid_repeat'] = self::int($input['avoid_repeat'] ?? 3, 0, 10);
+        $out['radio_style'] = self::bool($input['radio_style'] ?? true);
 
         $bed = is_array($input['bed'] ?? null) ? $input['bed'] : [];
         $out['bed'] = [

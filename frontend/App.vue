@@ -453,8 +453,9 @@
                                 </div>
                             </div>
                             <div class="form-text">
-                                Le code langue force la prononciation (modèles v3, Flash et Turbo ; ignoré par
-                                Multilingual v2, qui détecte la langue seul).
+                                Le code langue force la prononciation (modèles v4, v3, Flash et Turbo ; ignoré par
+                                Multilingual v2, qui détecte la langue seul). Changer de modèle change la voix : les clips
+                                de la bibliothèque enregistrés avec l'ancien modèle ne sont plus réutilisés.
                             </div>
                         </fieldset>
 
@@ -841,6 +842,27 @@
                                     Montrer à DeepSeek les {{ n }} dernières interventions de l'animateur
                                 </option>
                             </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch">
+                                <input
+                                    id="av-radio-style"
+                                    v-model="settings.radio_style"
+                                    class="form-check-input"
+                                    type="checkbox"
+                                    role="switch"
+                                >
+                                <label
+                                    class="form-check-label"
+                                    for="av-radio-style"
+                                >Écriture radio : ajouter automatiquement les règles d'écriture pour l'oreille</label>
+                            </div>
+                            <div class="form-text">
+                                Style oral, idées reliées pour garder l'élan de la voix, exclamations et questions.
+                                Selon le modèle de voix, DeepSeek ajoute aussi une ou deux indications de jeu comme
+                                [warmly] (Eleven v3 et v4) ou une ou deux pauses &lt;break&gt; (autres modèles).
+                                Le bouton « Aperçu » d'un prompt montre le texte complet envoyé à DeepSeek.
+                            </div>
                         </div>
                         <div class="col-12">
                             <label

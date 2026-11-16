@@ -228,11 +228,15 @@
                             </div>
                         </div>
                         <div
-                            v-if="settings.elevenlabs.model_id === 'eleven_v3'"
+                            v-if="/^eleven_v[34]/.test(settings.elevenlabs.model_id)"
                             class="alert alert-info mt-3 mb-0"
                         >
-                            Avec Eleven v3, la stabilité est arrondie à 0 (créatif), 0,5 (naturel) ou 1 (robuste), et les
-                            indications entre crochets comme [rires] sont lues comme des effets de voix.
+                            Avec Eleven v3 et v4, les indications de jeu entre crochets comme [warmly] ou [chuckles] ne
+                            sont pas lues mais interprétées comme des effets de voix (option « Écriture radio »).
+                            <template v-if="settings.elevenlabs.model_id === 'eleven_v3'">
+                                Avec v3, la stabilité est arrondie à 0 (créatif), 0,5 (naturel) ou 1 (robuste).
+                            </template>
+                            Une stabilité plus basse donne plus de relief à la voix, mais des résultats plus variables.
                         </div>
                     </div>
 

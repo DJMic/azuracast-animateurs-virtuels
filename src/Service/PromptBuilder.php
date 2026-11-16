@@ -110,6 +110,9 @@ final class PromptBuilder
     public static function messages(array $settings, array $host, array $prompt, array $variables, array $recent = []): array
     {
         $system = self::fill((string)$settings['system_prompt'], $variables);
+        if (!empty($settings['radio_style'])) {
+            $system .= "\n\n" . self::radioGuidelines((string)($settings['elevenlabs']['model_id'] ?? ''));
+        }
 
         $personality = trim((string)($host['personality'] ?? ''));
         if ($personality !== '') {
@@ -138,23 +141,98 @@ final class PromptBuilder
         ];
     }
 
+    /** Eleven v3 and v4 (and their variants) read [audio tags] and ignore SSML break tags. */
+    public static function supportsAudioTags(string $model): bool
+    {
+        return (bool)preg_match('/^eleven_v[34]/', $model);
+    }
+
+    /**
+     * Writing rules for the ear, added to the system prompt ("Écriture radio" option).
+     * The part about pauses and tone depends on the voice model.
+     */
+    public static function radioGuidelines(string $model): string
+    {
+        $text = <<<'TXT'
+            Écris pour l'oreille, pas pour la lecture : ton texte sera dit à voix haute par un animateur de radio généraliste.
+            - Syntaxe orale : phrases courtes, parfois sans verbe (« Une belle pépite, ce titre ! »), mots d'appui naturels (« allez », « bon », « et là »), tu t'adresses directement aux auditeurs.
+            - Garde l'élan de la voix : n'enchaîne pas une série de phrases courtes terminées par un point. Relie les idées avec des virgules, des tirets (—) ou des points de suspension, et termine plutôt sur une exclamation ou une question qui relance.
+            - Varie le relief : des exclamations et des questions aux auditeurs, sans en abuser.
+            - Pas de liste, pas de parenthèses, pas d'abréviation : écris tout comme cela se prononce.
+            TXT;
+
+        if (self::supportsAudioTags($model)) {
+            $text .= "\n" . <<<'TXT'
+                - Indications de jeu : tu peux placer une ou deux indications en anglais entre crochets, juste avant le passage concerné, par exemple [warmly], [cheerfully], [excited], [softly], [chuckles] ou [laughs]. Jamais plus de deux, jamais deux indications contradictoires, et aucun autre texte entre crochets.
+                - Pour une courte pause, utilise des points de suspension (…) ou un tiret (—).
+                TXT;
+        } else {
+            $text .= "\n" . <<<'TXT'
+                - Pour une vraie pause (par exemple juste avant d'annoncer un titre ou le nom de la radio), tu peux insérer au maximum deux fois la balise <break time="0.5s" />, avec une durée entre 0.3s et 1.2s. Aucune autre balise. Pour une pause plus légère, utilise des points de suspension (…) ou un tiret (—).
+                TXT;
+        }
+
+        return $text;
+    }
+
     /**
      * Keeps only what should be spoken: removes reasoning blocks, Markdown, surrounding quotes
-     * and stage directions. Square brackets are kept for Eleven v3 audio tags if $keepTags.
+     * and stage directions. Depending on the voice model, keeps up to 3 [audio tags]
+     * (Eleven v3/v4) or up to 2 <break time="…" /> pauses (other models).
      */
-    public static function clean(string $text, bool $keepTags = false, int $max = 2500): string
+    public static function clean(string $text, string $model = '', int $max = 2500): string
     {
+        $tags = self::supportsAudioTags($model);
+
         $text = (string)preg_replace('~<think>.*?</think>~is', '', $text);
+
+        // Pauses: normalized, at most 2 kept (only for models that understand them).
+        $breaks = [];
+        $text = (string)preg_replace_callback(
+            '~<\s*break\b[^>]*?time\s*=\s*["\']?\s*(\d+(?:[.,]\d+)?)\s*(ms|s)?\s*["\']?[^>]*>~i',
+            static function (array $m) use ($tags, &$breaks): string {
+                if ($tags || count($breaks) >= 2) {
+                    return ' ';
+                }
+                $seconds = (float)str_replace(',', '.', $m[1]);
+                if (strtolower($m[2] ?? '') === 'ms') {
+                    $seconds /= 1000;
+                }
+                $seconds = max(0.2, min(3.0, $seconds));
+                $breaks[] = '<break time="' . rtrim(rtrim(sprintf('%.1F', $seconds), '0'), '.') . 's" />';
+
+                return ' ' . "\x01" . (count($breaks) - 1) . "\x01" . ' ';
+            },
+            $text
+        );
+        $text = (string)preg_replace('~<[^>]*>~', ' ', $text);
+
         $text = (string)preg_replace('~^\s*(#+|[-*]\s+|>\s*)~m', '', $text);
         $text = str_replace(['**', '__', '`'], '', $text);
         $text = (string)preg_replace('~\*([^*\n]+)\*~u', '$1', $text);
         $text = (string)preg_replace('~\((?:[^()]*?(?:rire|sourire|musique|pause|jingle|ton|voix|soupir)[^()]*)\)~iu', '', $text);
-        if (!$keepTags) {
-            $text = (string)preg_replace('~\[[^\]]*\]~u', '', $text);
-        }
+
+        // Audio tags: short English directions only, at most 3.
+        $kept = 0;
+        $text = (string)preg_replace_callback(
+            '~\[([^\]]*)\]~u',
+            static function (array $m) use ($tags, &$kept): string {
+                $tag = trim($m[1]);
+                if ($tags && $kept < 3 && preg_match('/^[a-z][a-z \'-]{1,30}$/i', $tag)) {
+                    $kept++;
+
+                    return '[' . strtolower($tag) . ']';
+                }
+
+                return ' ';
+            },
+            $text
+        );
+
         $text = (string)preg_replace('/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE0F}]/u', '', $text);
         $text = trim((string)preg_replace('/\s+/u', ' ', $text));
         $text = trim($text, " \t\"'«»“”");
+        $text = (string)preg_replace('/\s+([,.…])/u', '$1', $text);
 
         if (mb_strlen($text) > $max) {
             $cut = mb_substr($text, 0, $max);
@@ -162,6 +240,6 @@ final class PromptBuilder
             $text = $end > $max / 2 ? mb_substr($cut, 0, $end + 1) : $cut;
         }
 
-        return $text;
+        return (string)preg_replace_callback("~\x01(\d)\x01~", static fn(array $m): string => $breaks[(int)$m[1]] ?? '', $text);
     }
 }

@@ -169,7 +169,7 @@ final class Generator
         }
         $messages = PromptBuilder::messages($settings, $host, $prompt, $variables, $recent);
         $answer = $this->deepSeek->complete($settings['deepseek'], $messages);
-        $text = PromptBuilder::clean($answer['text'], $settings['elevenlabs']['model_id'] === 'eleven_v3');
+        $text = PromptBuilder::clean($answer['text'], (string)$settings['elevenlabs']['model_id']);
         if (mb_strlen($text) < 3) {
             throw new RuntimeException('Le texte renvoyé par DeepSeek est vide après nettoyage.');
         }

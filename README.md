@@ -25,6 +25,8 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
   - et/ou à des **heures fixes** (par exemple 7:00, 7:30, 8:00). Il prend alors la parole à la fin du morceau en cours à cette heure-là.
 - **Plusieurs prompts par animateur.** À chaque intervention, l'un d'eux est tiré au hasard. Un prompt peut être réservé aux enchaînements ou aux heures fixes.
 - **Variables** utilisables dans les textes : `{animateur}`, `{station}`, `{heure}`, `{jour}`, `{date}`, `{moment}`, `{titre_precedent}`, `{artiste_precedent}`, `{titre_suivant}`, `{artiste_suivant}`, `{duree}`, `{mots}`, `{langue}`.
+- **Écriture radio** (depuis la version 1.2.0) : DeepSeek reçoit des règles d'écriture pour l'oreille (style oral, idées reliées pour garder l'élan de la voix, exclamations et questions). Ces règles s'adaptent au modèle de voix : une ou deux indications de jeu comme `[warmly]` ou `[chuckles]` avec Eleven v4 et v3, une ou deux pauses `<break time="0.5s" />` avec les autres modèles. Option activée par défaut, dans « Consignes générales ».
+- **Eleven v4**, le modèle ElevenLabs le plus naturel et expressif, est proposé et recommandé.
 - **Anti-répétition.** DeepSeek reçoit les dernières interventions de l'animateur pour varier ses formulations.
 - **Bibliothèque de clips réutilisables** (depuis la version 1.1.0) : les voix obtenues avec des prompts « intemporels » sont gardées et rediffusées sur un nouveau fond musical, sans appel aux API. Voir « Bibliothèque » plus bas.
 - **Fond musical réglable :**

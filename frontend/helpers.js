@@ -29,8 +29,9 @@ export const STATUSES = {
 };
 
 export const ELEVENLABS_MODELS = [
-    {value: "eleven_multilingual_v2", label: "Multilingual v2 (recommandé pour le français)"},
-    {value: "eleven_v3", label: "Eleven v3 (le plus expressif)"},
+    {value: "eleven_v4", label: "Eleven v4 (recommandé : le plus naturel et expressif)"},
+    {value: "eleven_v3", label: "Eleven v3 (expressif)"},
+    {value: "eleven_multilingual_v2", label: "Multilingual v2 (plus régulier, moins expressif)"},
     {value: "eleven_flash_v2_5", label: "Flash v2.5 (rapide, moins cher)"},
     {value: "eleven_turbo_v2_5", label: "Turbo v2.5"},
 ];

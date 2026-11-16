@@ -164,8 +164,19 @@ check('personnalité ajoutée', str_contains($messages[0]['content'], 'Drôle.')
 check('anti-répétition', str_contains($messages[0]['content'], '- Bonjour hier'), true);
 check('consigne info manquante', str_contains($messages[0]['content'], 'non disponible, n\'en parle pas'), true);
 check('nettoyage', PromptBuilder::clean("<think>x</think>**« Bonjour ! »** (rires) [joyeux] Il est 7h 🎉"), 'Bonjour ! » Il est 7h');
-check('nettoyage v3 garde les balises', PromptBuilder::clean('[joyeux] Salut', true), '[joyeux] Salut');
-check('coupure à la phrase', PromptBuilder::clean(str_repeat('Phrase courte. ', 30), false, 100), trim(str_repeat('Phrase courte. ', 6)));
+check('nettoyage v3 garde les balises', PromptBuilder::clean('[Warmly] Salut', 'eleven_v3'), '[warmly] Salut');
+check('nettoyage v4 : balises audio gardées, pauses SSML retirées', PromptBuilder::clean('[excited] Allez <break time="0.5s"/> on y va [souriant] [laughs] [softly] [cheerfully] !', 'eleven_v4'), '[excited] Allez on y va [souriant] [laughs] !');
+check('nettoyage v4 : pas de texte libre entre crochets', PromptBuilder::clean('[ton enjoué et complice, 2 secondes] Salut', 'eleven_v4'), 'Salut');
+check('nettoyage v2 : pauses normalisées, 2 maximum', PromptBuilder::clean('Bon <break time="500ms"/> allez <break time = \'9s\' /> et <break time="1s"/> fin [warmly]', 'eleven_multilingual_v2'), 'Bon <break time="0.5s" /> allez <break time="3s" /> et fin');
+check('nettoyage : autres balises retirées', PromptBuilder::clean('<speak>Salut <emphasis>toi</emphasis></speak>', 'eleven_multilingual_v2'), 'Salut toi');
+check('coupure à la phrase', PromptBuilder::clean(str_repeat('Phrase courte. ', 30), '', 100), trim(str_repeat('Phrase courte. ', 6)));
+check('écriture radio v4 : balises audio', str_contains(PromptBuilder::radioGuidelines('eleven_v4'), '[warmly]'), true);
+check('écriture radio v2 : balise de pause', str_contains(PromptBuilder::radioGuidelines('eleven_multilingual_v2'), '<break time='), true);
+$radio = Settings::fromInput($input, []);
+check('écriture radio activée par défaut', str_contains(PromptBuilder::messages($radio, $lea, $lea['prompts'][0], $vars)[0]['content'], 'Écris pour l\'oreille'), true);
+$radio['radio_style'] = false;
+check('écriture radio désactivable', str_contains(PromptBuilder::messages($radio, $lea, $lea['prompts'][0], $vars)[0]['content'], 'Écris pour l\'oreille'), false);
+check('modèle par défaut : Eleven v4', Settings::defaults()['elevenlabs']['model_id'], 'eleven_v4');
 
 // --- ElevenLabs payload --------------------------------------------------------------------------
 $payload = ElevenLabs::payload(['model_id' => 'eleven_v3', 'language_code' => 'fr'], $lea['voice'], 'Salut');
