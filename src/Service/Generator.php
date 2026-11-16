@@ -27,6 +27,7 @@ final class Generator
     public function __construct(
         private readonly Store $store,
         private readonly Jobs $jobs,
+        private readonly Library $library,
         private readonly DeepSeek $deepSeek,
         private readonly ElevenLabs $elevenLabs,
         private readonly Mixer $mixer,
@@ -95,23 +96,77 @@ final class Generator
     {
         $stationId = (int)$station->id;
         $settings = $this->store->read($station);
-        if ($settings['deepseek']['api_key'] === '' || $settings['elevenlabs']['api_key'] === '') {
-            throw new RuntimeException('Clé API DeepSeek ou ElevenLabs manquante.');
-        }
         $host = Settings::findHost($settings, (string)$job['host_id'])
             ?? throw new RuntimeException('Animateur introuvable (supprimé ?).');
         if ($host['voice_id'] === '') {
             throw new RuntimeException('Voice ID manquant pour « ' . $host['name'] . ' ».');
         }
+        $job['host_name'] = $host['name'];
+        $config = Library::config($host);
+        $signature = Library::voiceSignature($settings, $host);
+
+        // Daily limit reached: only a clip of the library can be aired.
+        if (!empty($job['reuse_only'])) {
+            $entry = $this->library->take($stationId, $host['id'], $signature, $config, true)
+                ?? throw new RuntimeException('Limite quotidienne atteinte et bibliothèque vide.');
+
+            return $this->fromLibrary($station, $settings, $host, $job, $entry, 'Limite quotidienne atteinte.');
+        }
+
+        // Reuse a clip of the library, more and more often as it grows.
+        if ($job['kind'] === 'between' && !empty($config['enabled'])) {
+            $size = count(array_filter(
+                $this->library->entries($stationId, $host['id']),
+                static fn(array $e): bool => ($e['signature'] ?? '') === $signature
+            ));
+            $share = Library::reuseShare($config, $size);
+            $job['reuse_share'] = $share;
+            if ($share > 0 && mt_rand() / mt_getrandmax() < $share) {
+                $entry = $this->library->take($stationId, $host['id'], $signature, $config);
+                if ($entry !== null) {
+                    return $this->fromLibrary($station, $settings, $host, $job, $entry);
+                }
+            }
+        }
+
+        try {
+            return $this->fresh($station, $settings, $host, $job, $signature, $config);
+        } catch (Throwable $e) {
+            // Service down, no credit…: a clip of the library rather than nothing.
+            if (!empty($config['enabled']) && !empty($config['fallback']) && $job['kind'] !== 'test') {
+                $entry = $this->library->take($stationId, $host['id'], $signature, $config, true);
+                if ($entry !== null) {
+                    $this->logger->warning('Animateurs virtuels : ' . $e->getMessage() . ' → clip de la bibliothèque.');
+
+                    return $this->fromLibrary($station, $settings, $host, $job, $entry, Database::describe($e));
+                }
+            }
+            throw $e;
+        }
+    }
+
+    /** New text (DeepSeek) and new voice (ElevenLabs). Timeless results go to the library. */
+    private function fresh(Station $station, array $settings, array $host, array $job, string $signature, array $config): array
+    {
+        $stationId = (int)$station->id;
+        if ($settings['deepseek']['api_key'] === '' || $settings['elevenlabs']['api_key'] === '') {
+            throw new RuntimeException('Clé API DeepSeek ou ElevenLabs manquante.');
+        }
         $prompt = Planner::pickPrompt($host, (string)$job['kind'], (string)$job['prompt_id'])
             ?? throw new RuntimeException('Aucun prompt actif pour « ' . $host['name'] . ' ».');
         $job['prompt_id'] = $prompt['id'];
         $job['prompt_name'] = $prompt['name'];
-        $job['host_name'] = $host['name'];
+        $job['reused'] = false;
 
         // 1. Text
         $variables = is_array($job['variables']) ? $job['variables'] : [];
         $recent = $this->jobs->recentTexts($stationId, $host['id'], (int)$settings['avoid_repeat']);
+        if (!empty($prompt['timeless'])) {
+            // Shows DeepSeek part of the library so that new clips bring something different.
+            $known = array_column($this->library->entries($stationId, $host['id']), 'text');
+            shuffle($known);
+            $recent = array_values(array_unique(array_merge($recent, array_slice($known, 0, 8))));
+        }
         $messages = PromptBuilder::messages($settings, $host, $prompt, $variables, $recent);
         $answer = $this->deepSeek->complete($settings['deepseek'], $messages);
         $text = PromptBuilder::clean($answer['text'], $settings['elevenlabs']['model_id'] === 'eleven_v3');
@@ -123,9 +178,7 @@ final class Generator
         $this->jobs->save($stationId, $job);
 
         // 2. Voice
-        $tmpDir = $this->jobs->dir($stationId, 'tmp');
-        $voicePath = $tmpDir . '/' . $job['id'] . '-voice.mp3';
-        $mixPath = $tmpDir . '/' . $job['id'] . '-mix.mp3';
+        $voicePath = $this->jobs->dir($stationId, 'tmp') . '/' . $job['id'] . '-voice.mp3';
         try {
             $job['characters'] = $this->elevenLabs->speak(
                 $settings['elevenlabs'],
@@ -136,7 +189,65 @@ final class Generator
             ) ?: mb_strlen($text);
             $job['voice_duration'] = round($this->mixer->duration($voicePath), 2);
 
-            // 3. Music bed and mix
+            // 3. Timeless text: the voice joins the library (whatever the reuse setting).
+            if (!empty($prompt['timeless'])) {
+                $marker = Library::timeMarker($text);
+                if ($marker !== null) {
+                    $job['library_note'] = 'Non ajoutée à la bibliothèque : contient « ' . $marker . ' ».';
+                } else {
+                    try {
+                        $entry = $this->library->add($stationId, $host['id'], $voicePath, [
+                            'text' => $text,
+                            'signature' => $signature,
+                            'voice_duration' => $job['voice_duration'],
+                            'characters' => $job['characters'],
+                            'prompt_name' => $prompt['name'],
+                            'source_job' => $job['id'],
+                        ], (int)$config['max_size']);
+                        $job['library_id'] = $entry['id'];
+                        $job['library_note'] = 'Ajoutée à la bibliothèque.';
+                    } catch (Throwable $e) {
+                        $job['library_note'] = 'Non ajoutée à la bibliothèque : ' . $e->getMessage();
+                    }
+                }
+            }
+
+            // 4. Music bed and mix
+            return $this->mixVoice($station, $settings, $host, $job, $voicePath);
+        } finally {
+            @unlink($voicePath);
+        }
+    }
+
+    /** Reuses a recorded voice of the library with a new music bed: no API call. */
+    private function fromLibrary(Station $station, array $settings, array $host, array $job, array $entry, string $reason = ''): array
+    {
+        $stationId = (int)$station->id;
+        $job['reused'] = true;
+        $job['library_id'] = $entry['id'];
+        $job['text'] = (string)$entry['text'];
+        $job['prompt_name'] = (string)$entry['prompt_name'];
+        $job['characters'] = 0;
+        $job['tokens'] = 0;
+        $job['voice_duration'] = $entry['voice_duration'];
+        $job['library_note'] = 'Réutilisée depuis la bibliothèque (diffusion n° ' . (int)$entry['uses'] . ')'
+            . ($reason !== '' ? ', à la place d\'une nouvelle intervention : ' . $reason : '.');
+
+        $job = $this->mixVoice($station, $settings, $host, $job, $this->library->audioPath($stationId, $host['id'], (string)$entry['id']));
+        if (!empty($entry['retire'])) {
+            $this->library->delete($stationId, $host['id'], (string)$entry['id']);
+            $job['library_note'] .= ' Nombre maximal de diffusions atteint : retirée de la bibliothèque.';
+        }
+
+        return $job;
+    }
+
+    /** Mixes a voice over a music bed into the job's clip. */
+    private function mixVoice(Station $station, array $settings, array $host, array $job, string $voicePath): array
+    {
+        $variables = is_array($job['variables']) ? $job['variables'] : [];
+        $mixPath = $this->jobs->dir((int)$station->id, 'tmp') . '/' . $job['id'] . '-mix.mp3';
+        try {
             $metadata = [
                 'title' => PromptBuilder::fill($settings['output']['meta_title'], $variables),
                 'artist' => PromptBuilder::fill($settings['output']['meta_artist'], $variables),
@@ -168,7 +279,6 @@ final class Generator
             }
             $job['duration'] = round($duration, 2);
         } finally {
-            @unlink($voicePath);
             @unlink($mixPath);
         }
 

@@ -20,6 +20,7 @@ use Plugin\AzuracastAnimateursVirtuels\Service\DeepSeek;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
+use Plugin\AzuracastAnimateursVirtuels\Service\Library;
 use Plugin\AzuracastAnimateursVirtuels\Service\Planner;
 use Plugin\AzuracastAnimateursVirtuels\Service\Plugin;
 use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
@@ -36,6 +37,7 @@ final class PanelController
     public function __construct(
         private readonly Store $store,
         private readonly Jobs $jobs,
+        private readonly Library $library,
         private readonly Generator $generator,
         private readonly DeepSeek $deepSeek,
         private readonly ElevenLabs $elevenLabs,
@@ -112,6 +114,16 @@ final class PanelController
             }
 
             $this->store->write($station, $settings);
+
+            // Library of a deleted host.
+            if ($this->jobs->isWritable()) {
+                $ids = array_column($settings['hosts'], 'id');
+                foreach ($this->library->hosts((int)$station->id) as $hostId) {
+                    if (!in_array($hostId, $ids, true)) {
+                        $this->library->deleteHost((int)$station->id, $hostId);
+                    }
+                }
+            }
 
             return $this->json($response, [
                 'success' => true,
@@ -339,6 +351,94 @@ final class PanelController
         });
     }
 
+    public function libraryAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $station = $request->getStation();
+            $settings = $this->store->read($station);
+            $hosts = [];
+            foreach ($settings['hosts'] as $host) {
+                $signature = Library::voiceSignature($settings, $host);
+                $config = Library::config($host);
+                $entries = $this->jobs->isWritable() ? $this->library->entries((int)$station->id, $host['id']) : [];
+                $valid = 0;
+                foreach ($entries as &$entry) {
+                    $entry['obsolete'] = ($entry['signature'] ?? '') !== $signature;
+                    $valid += $entry['obsolete'] ? 0 : 1;
+                    unset($entry['signature']);
+                }
+                unset($entry);
+                $hosts[] = [
+                    'host_id' => $host['id'],
+                    'name' => $host['name'],
+                    'config' => $config,
+                    'valid' => $valid,
+                    'share' => Library::reuseShare($config, $valid),
+                    'timeless_prompts' => count(array_filter(
+                        $host['prompts'],
+                        static fn(array $p): bool => !empty($p['timeless']) && !empty($p['enabled'])
+                    )),
+                    'entries' => $entries,
+                ];
+            }
+
+            return $this->json($response, ['hosts' => $hosts]);
+        });
+    }
+
+    public function libraryAudioAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        $hostId = (string)($params['host_id'] ?? '');
+        $id = (string)($params['entry_id'] ?? '');
+        if (!Library::isValidId($hostId) || !Library::isValidId($id)) {
+            return $response->withStatus(404);
+        }
+        $path = $this->library->audioPath((int)$request->getStation()->id, $hostId, $id);
+        if (!is_file($path)) {
+            return $response->withStatus(404);
+        }
+        $response->getBody()->write((string)file_get_contents($path));
+
+        return $response
+            ->withHeader('Content-Type', 'audio/mpeg')
+            ->withHeader('Content-Length', (string)filesize($path))
+            ->withHeader('Cache-Control', 'private, max-age=3600');
+    }
+
+    public function libraryDeleteAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response, $params): ResponseInterface {
+            $this->verifyCsrf($request);
+            $hostId = (string)($params['host_id'] ?? '');
+            if (!Library::isValidId($hostId)) {
+                throw new InvalidArgumentException('Animateur invalide.');
+            }
+            $deleted = $this->library->delete((int)$request->getStation()->id, $hostId, (string)($params['entry_id'] ?? ''));
+
+            return $this->json($response, [
+                'success' => $deleted,
+                'message' => $deleted ? 'Clip supprimé de la bibliothèque.' : 'Ce clip n\'existe plus.',
+            ]);
+        });
+    }
+
+    public function libraryObsoleteAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response, $params): ResponseInterface {
+            $this->verifyCsrf($request);
+            $station = $request->getStation();
+            $settings = $this->store->read($station);
+            $host = Settings::findHost($settings, (string)($params['host_id'] ?? ''))
+                ?? throw new InvalidArgumentException('Animateur introuvable.');
+            $count = $this->library->deleteObsolete((int)$station->id, $host['id'], Library::voiceSignature($settings, $host));
+
+            return $this->json($response, [
+                'success' => true,
+                'message' => $count . ' clip(s) enregistré(s) avec une ancienne voix supprimé(s).',
+            ]);
+        });
+    }
+
     // --- helpers --------------------------------------------------------------------------------
 
     private function status(Station $station): array
@@ -356,6 +456,7 @@ final class PanelController
             'autodj' => $station->supportsAutoDjQueue(),
             'ready' => Settings::isReady($settings),
             'today' => $writable ? $this->jobs->countToday((int)$station->id, $now) : 0,
+            'today_reused' => $writable ? $this->jobs->todayStats((int)$station->id, $now)['reused'] : 0,
             'on_air' => $onAir !== null ? [
                 'host' => $onAir['host']['name'],
                 'start' => $onAir['slot']['start'],

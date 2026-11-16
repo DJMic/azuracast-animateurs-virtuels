@@ -323,6 +323,26 @@
                                     rows="3"
                                     :aria-label="`Texte du prompt ${prompt.name}`"
                                 />
+                                <div class="form-check mt-2 mb-0">
+                                    <input
+                                        :id="`av-p-timeless-${index}`"
+                                        v-model="prompt.timeless"
+                                        class="form-check-input"
+                                        type="checkbox"
+                                    >
+                                    <label
+                                        class="form-check-label"
+                                        :for="`av-p-timeless-${index}`"
+                                    >Intemporel : les voix obtenues vont dans la bibliothèque et peuvent être rediffusées</label>
+                                </div>
+                                <div
+                                    v-if="prompt.timeless && contextVariables(prompt.text).length"
+                                    class="text-danger small mt-1"
+                                >
+                                    Un prompt intemporel ne peut pas utiliser
+                                    {{ contextVariables(prompt.text).map((v) => '{' + v + '}').join(', ') }} :
+                                    ces informations changent à chaque diffusion.
+                                </div>
                             </div>
                         </div>
                         <button
@@ -352,6 +372,131 @@
                                     {{ m.content }}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Bibliothèque -->
+                    <div v-show="tab === 'library'">
+                        <p class="text-body-secondary">
+                            Chaque voix obtenue avec un prompt <strong>intemporel</strong> est gardée dans la bibliothèque
+                            de l'animateur, si son texte ne mentionne ni moment ni morceau (vérification automatique).
+                            Une intervention « entre deux morceaux » peut alors reprendre une de ces voix sur un nouveau
+                            fond musical, sans appeler DeepSeek ni ElevenLabs. Vous pouvez écouter et supprimer les
+                            clips dans l'onglet « Bibliothèque » de la page.
+                        </p>
+                        <div
+                            v-if="!form.prompts.some((p) => p.timeless && p.enabled)"
+                            class="alert alert-warning"
+                        >
+                            Aucun prompt actif n'est marqué « intemporel » : la bibliothèque ne se remplira pas.
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input
+                                id="av-l-enabled"
+                                v-model="form.library.enabled"
+                                class="form-check-input"
+                                type="checkbox"
+                                role="switch"
+                            >
+                            <label
+                                class="form-check-label"
+                                for="av-l-enabled"
+                            >Réutiliser les clips de la bibliothèque</label>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label
+                                    class="form-label"
+                                    for="av-l-min"
+                                >Commencer à partir de (clips)</label>
+                                <input
+                                    id="av-l-min"
+                                    v-model.number="form.library.min_size"
+                                    type="number"
+                                    min="1"
+                                    max="1000"
+                                    class="form-control"
+                                >
+                            </div>
+                            <div class="col-md-4">
+                                <label
+                                    class="form-label"
+                                    for="av-l-share"
+                                >Part maximale de réutilisation (%)</label>
+                                <input
+                                    id="av-l-share"
+                                    v-model.number="form.library.max_share"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    class="form-control"
+                                >
+                            </div>
+                            <div class="col-md-4">
+                                <label
+                                    class="form-label"
+                                    for="av-l-gap"
+                                >Délai avant de rediffuser un clip (jours)</label>
+                                <input
+                                    id="av-l-gap"
+                                    v-model.number="form.library.min_gap_days"
+                                    type="number"
+                                    min="0"
+                                    max="365"
+                                    class="form-control"
+                                >
+                            </div>
+                            <div class="col-md-4">
+                                <label
+                                    class="form-label"
+                                    for="av-l-uses"
+                                >Diffusions maximum par clip (0 = illimité)</label>
+                                <input
+                                    id="av-l-uses"
+                                    v-model.number="form.library.max_uses"
+                                    type="number"
+                                    min="0"
+                                    max="1000"
+                                    class="form-control"
+                                >
+                            </div>
+                            <div class="col-md-4">
+                                <label
+                                    class="form-label"
+                                    for="av-l-size"
+                                >Taille maximale (clips)</label>
+                                <input
+                                    id="av-l-size"
+                                    v-model.number="form.library.max_size"
+                                    type="number"
+                                    min="5"
+                                    max="2000"
+                                    class="form-control"
+                                >
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <div class="form-check mb-2">
+                                    <input
+                                        id="av-l-fallback"
+                                        v-model="form.library.fallback"
+                                        class="form-check-input"
+                                        type="checkbox"
+                                    >
+                                    <label
+                                        class="form-check-label"
+                                        for="av-l-fallback"
+                                    >Secours : utiliser la bibliothèque en cas de panne ou de limite quotidienne atteinte</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-text mt-2">
+                            Avant {{ form.library.min_size }} clips, toutes les interventions sont nouvelles. Ensuite, la
+                            part de réutilisation augmente avec la taille de la bibliothèque, jusqu'à
+                            {{ form.library.max_share }} % des interventions « entre deux morceaux » à partir de
+                            {{ form.library.min_size * 3 }} clips. Les enchaînements qui citent les morceaux et les heures
+                            fixes restent toujours nouveaux. Au-delà de la taille maximale, le clip le plus diffusé laisse
+                            sa place. Si vous changez la voix (Voice ID ou réglages), les anciens clips ne sont plus
+                            réutilisés.
                         </div>
                     </div>
 
@@ -532,7 +677,7 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { DAYS, USAGES, clone } from "./helpers.js";
+import { DAYS, USAGES, clone, contextVariables } from "./helpers.js";
 
 const props = defineProps({
     api: { type: Object, required: true },
@@ -550,6 +695,7 @@ const tabs = [
     { key: "voice", label: "Réglages de la voix" },
     { key: "prompts", label: "Prompts" },
     { key: "slots", label: "Tranches horaires" },
+    { key: "library", label: "Bibliothèque" },
 ];
 const days = DAYS;
 const usages = USAGES;
@@ -561,6 +707,9 @@ const sliders = [
 ];
 
 const form = reactive(clone(props.host));
+// Hosts saved before version 1.1.0 have no library settings.
+form.library = { enabled: false, min_size: 20, max_share: 60, min_gap_days: 3, max_uses: 0, max_size: 200, fallback: true, ...(form.library || {}) };
+form.prompts.forEach((p) => { p.timeless = Boolean(p.timeless); });
 const originalName = props.host.name;
 const tab = ref("general");
 const saving = ref(false);
@@ -571,7 +720,7 @@ const previewing = ref(false);
 const previewMessages = ref(null);
 
 function addPrompt() {
-    form.prompts.push({ id: "", name: `Prompt ${form.prompts.length + 1}`, usage: "all", enabled: true, text: "" });
+    form.prompts.push({ id: "", name: `Prompt ${form.prompts.length + 1}`, usage: "all", enabled: true, timeless: false, text: "" });
 }
 
 function addSlot() {

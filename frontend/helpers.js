@@ -108,3 +108,18 @@ export function findOverlaps(hosts) {
     }
     return [...overlaps];
 }
+
+/** Variables that make a prompt depend on the moment (a reusable prompt cannot use them). */
+export const CONTEXT_VARIABLES = [
+    "heure", "jour", "date", "moment",
+    "titre_precedent", "artiste_precedent", "titre_suivant", "artiste_suivant",
+];
+
+export function contextVariables(text) {
+    const found = [...(text || "").matchAll(/\{([a-z_]+)\}/gi)].map((m) => m[1].toLowerCase());
+    return [...new Set(found.filter((v) => CONTEXT_VARIABLES.includes(v)))];
+}
+
+export function formatTimestamp(seconds) {
+    return seconds ? formatDateTime(new Date(seconds * 1000).toISOString()) : "";
+}

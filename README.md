@@ -26,6 +26,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 - **Plusieurs prompts par animateur.** À chaque intervention, l'un d'eux est tiré au hasard. Un prompt peut être réservé aux enchaînements ou aux heures fixes.
 - **Variables** utilisables dans les textes : `{animateur}`, `{station}`, `{heure}`, `{jour}`, `{date}`, `{moment}`, `{titre_precedent}`, `{artiste_precedent}`, `{titre_suivant}`, `{artiste_suivant}`, `{duree}`, `{mots}`, `{langue}`.
 - **Anti-répétition.** DeepSeek reçoit les dernières interventions de l'animateur pour varier ses formulations.
+- **Bibliothèque de clips réutilisables** (depuis la version 1.1.0) : les voix obtenues avec des prompts « intemporels » sont gardées et rediffusées sur un nouveau fond musical, sans appel aux API. Voir « Bibliothèque » plus bas.
 - **Fond musical réglable :**
   - baisse sous la voix (dB) et volume général ;
   - musique seule avant et après la voix ;
@@ -126,12 +127,30 @@ Les interventions apparaissent dans la **file d'attente** d'AzuraCast (Diffusion
 - **En cas de problème** (service indisponible, crédit épuisé…), l'intervention est retirée de la file : la musique continue normalement. Si un clip n'est pas prêt au moment de la diffusion, une demi-seconde de silence est diffusée à la place. L'erreur est visible dans l'historique.
 - **Fondu enchaîné.** Le fondu enchaîné d'AzuraCast s'applique aussi aux interventions. Avec la musique seule avant et après la voix (3 s par défaut), la voix n'est jamais coupée.
 
+## Bibliothèque : moins d'appels aux API avec le temps
+
+Chaque intervention coûte un appel à DeepSeek et, surtout, des caractères ElevenLabs. La bibliothèque permet de réutiliser des voix déjà enregistrées.
+
+1. **Prompts intemporels.** Dans l'édition d'un animateur, onglet « Prompts », cochez « Intemporel » sur les prompts dont le résultat peut être rediffusé à tout moment. Un nouvel animateur en a un d'exemple : « Ambiance (réutilisable) ». Un tel prompt ne peut pas utiliser `{heure}`, `{jour}`, `{date}`, `{moment}` ni les titres et artistes. DeepSeek reçoit en plus la consigne de ne citer ni moment, ni date, ni saison, ni météo, ni morceau.
+2. **Vérification automatique.** Avant d'entrer dans la bibliothèque, le texte est contrôlé. Il est écarté s'il contient une heure, un jour, un mois, « bonjour », « bonsoir », « ce matin », « demain », « le morceau suivant »… L'historique indique pourquoi une voix n'a pas été gardée.
+3. **Réutilisation progressive.** Dans l'onglet « Bibliothèque » de l'animateur, activez « Réutiliser les clips de la bibliothèque ». En dessous du minimum (20 clips par défaut), toutes les interventions sont nouvelles. Ensuite, la part de clips réutilisés augmente avec la taille de la bibliothèque, jusqu'au maximum choisi (60 % par défaut, atteint à 3 fois le minimum). Seules les interventions « entre deux morceaux » sont concernées : les heures fixes restent toujours nouvelles.
+4. **Anti-lassitude.**
+   - Le clip le moins récemment diffusé passe en premier.
+   - Un clip ne repasse pas avant X jours (3 par défaut).
+   - Un nombre maximal de diffusions par clip est possible : une fois atteint, le clip est retiré.
+   - Une taille maximale de bibliothèque peut être fixée : au-delà, le clip le plus diffusé laisse sa place.
+5. **Secours.** Si DeepSeek ou ElevenLabs est en panne, ou si la limite quotidienne est atteinte, un clip de la bibliothèque est diffusé au lieu de rien. Les clips réutilisés ne comptent pas dans la limite quotidienne.
+6. **Contrôle.** L'onglet « Bibliothèque » de la page liste les clips de chaque animateur. On peut les écouter et supprimer ceux qui ne conviennent pas. Si la voix d'un animateur change (Voice ID, modèle ou réglages), ses anciens clips ne sont plus réutilisés. Un bouton permet de les supprimer.
+
+La bibliothèque n'est pas concernée par le nettoyage automatique des clips au bout de X jours. Elle se remplit même quand la réutilisation est désactivée : vous pouvez la constituer avant de l'activer.
+
 ## Où sont les données ?
 
 | Données | Emplacement |
 | --- | --- |
 | Réglages et clés API | `/var/azuracast/stations/<station>/config/animateurs-virtuels.json` (droits 0600) |
 | Clips, historique, état | `/var/azuracast/plugins/azuracast-animateurs-virtuels/data/<id station>/` |
+| Bibliothèque (voix réutilisables) | `…/data/<id station>/library/<id animateur>/` |
 
 Dans le conteneur, le dossier `data/` est monté sur `/var/azuracast/plugin-data/animateurs-virtuels`.
 
@@ -140,7 +159,7 @@ Dans le conteneur, le dossier `data/` est monté sur `/var/azuracast/plugin-data
 - **DeepSeek** facture au nombre de jetons. Une intervention coûte une fraction de centime.
 - **ElevenLabs** décompte les caractères de votre abonnement. Une intervention de 20 secondes fait environ 300 caractères. Avec une intervention toutes les 4 chansons de 6 h à 9 h, comptez environ 15 interventions par jour et par animateur.
 
-Chaque intervention de l'historique indique le nombre de caractères ElevenLabs utilisés.
+Chaque intervention de l'historique indique le nombre de caractères ElevenLabs utilisés. Les clips réutilisés depuis la bibliothèque ne coûtent rien.
 
 ## Commandes utiles
 

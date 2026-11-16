@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 // Standalone tests for the logic that does not need AzuraCast: php tests/run.php
 
-foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs'] as $class) {
+foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library'] as $class) {
     require __DIR__ . '/../src/Service/' . $class . '.php';
 }
 
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
+use Plugin\AzuracastAnimateursVirtuels\Service\Library;
 use Plugin\AzuracastAnimateursVirtuels\Service\Mixer;
 use Plugin\AzuracastAnimateursVirtuels\Service\Planner;
 use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
@@ -203,6 +204,81 @@ touch($root . '/7/jobs/' . $job['id'] . '.json', time() - 10 * 86400);
 check('nettoyage après la durée de conservation', $jobs->cleanup(7, 7), 1);
 check('historique vide', $jobs->list(7), []);
 exec('rm -rf ' . escapeshellarg($root));
+
+// --- Library -------------------------------------------------------------------------------------
+check('prompt intemporel accepté', Library::contextVariables('Rappelle que tu es {animateur} sur {station}'), []);
+check('variables de contexte détectées', Library::contextVariables('Il est {HEURE}, on écoute {titre_suivant}'), ['heure', 'titre_suivant']);
+$timeless = $input;
+$timeless['hosts'][0]['prompts'][] = ['name' => 'X', 'usage' => 'between', 'enabled' => true, 'timeless' => true, 'text' => 'Ce {moment} sur {station}'];
+throws('prompt réutilisable avec {moment} refusé', static fn() => Settings::fromInput($timeless, []), '{moment}');
+check('prompt réutilisable par défaut', Settings::defaultHost()['prompts'][2]['timeless'], true);
+check('réglages de bibliothèque par défaut', Settings::fromInput($input, [])['hosts'][0]['library']['min_size'], 20);
+foreach ([
+    'Bonjour à tous, restez avec nous !' => 'bonjour',
+    'Belle soirée sur Radio Test.' => 'soirée',
+    'On se retrouve demain.' => 'demain',
+    'Il est 7h30 sur Radio Test.' => '7h30',
+    'Le morceau suivant va vous plaire.' => 'morceau suivant',
+    'Un été plein de musique.' => null,
+    'Ça a été un plaisir, restez à l\'écoute de Radio Test, la musique qui fait du bien.' => null,
+    'Merci d’être là, vous écoutez Radio Test.' => null,
+    'Mais quelle ambiance sur Radio Test !' => null,
+] as $text => $expected) {
+    check('filtre intemporel : ' . $text, Library::timeMarker($text), $expected);
+}
+$config = ['enabled' => true, 'min_size' => 20, 'max_share' => 60] + Library::DEFAULTS;
+check('réutilisation : 0 sous le minimum', Library::reuseShare($config, 19), 0.0);
+check('réutilisation : faible au minimum', Library::reuseShare($config, 20) > 0 && Library::reuseShare($config, 20) < 0.05, true);
+check('réutilisation : croissante', Library::reuseShare($config, 40) > Library::reuseShare($config, 25), true);
+check('réutilisation : plafond à 3× le minimum', Library::reuseShare($config, 60), 0.6);
+check('réutilisation : plafonnée', Library::reuseShare($config, 500), 0.6);
+check('réutilisation : désactivée', Library::reuseShare(['enabled' => false] + $config, 500), 0.0);
+$sig = Library::voiceSignature($settings, $lea);
+$other = $lea;
+$other['voice']['speed'] = 1.1;
+check('signature : change avec la voix', Library::voiceSignature($settings, $other) !== $sig, true);
+$now = 1_800_000_000;
+$entries = [
+    ['id' => 'a', 'signature' => $sig, 'last_used_at' => $now - 86400],
+    ['id' => 'b', 'signature' => $sig, 'last_used_at' => $now - 10 * 86400],
+    ['id' => 'c', 'signature' => $sig, 'last_used_at' => null],
+    ['id' => 'd', 'signature' => 'autre', 'last_used_at' => null],
+];
+check('choix : jamais diffusé d\'abord', Library::choose($entries, $sig, $config, $now)['id'], 'c');
+check('choix : délai respecté', Library::choose(array_slice($entries, 0, 2), $sig, $config, $now)['id'], 'b');
+check('choix : rien de disponible', Library::choose([$entries[0], $entries[3]], $sig, $config, $now), null);
+check('choix : secours sans délai', Library::choose([$entries[0], $entries[3]], $sig, $config, $now, true)['id'], 'a');
+
+$root = sys_get_temp_dir() . '/av-lib-' . bin2hex(random_bytes(4));
+mkdir($root);
+$library = new Library($root);
+$voice = $root . '/voice.mp3';
+file_put_contents($voice, str_repeat('x', 2000));
+$e1 = $library->add(3, 'host00000001', $voice, ['text' => 'Un', 'signature' => $sig], 2);
+$e2 = $library->add(3, 'host00000001', $voice, ['text' => 'Deux', 'signature' => $sig], 2);
+check('bibliothèque : 2 clips', count($library->entries(3, 'host00000001')), 2);
+$taken = $library->take(3, 'host00000001', $sig, ['max_uses' => 2] + $config);
+check('bibliothèque : utilisation comptée', [$taken['uses'], $taken['retire']], [1, false]);
+check('bibliothèque : le même clip n\'est pas repris (délai)', $library->take(3, 'host00000001', $sig, $config)['id'] !== $taken['id'], true);
+check('bibliothèque : plus rien avant le délai', $library->take(3, 'host00000001', $sig, $config), null);
+$e3 = $library->add(3, 'host00000001', $voice, ['text' => 'Trois', 'signature' => 'ancienne'], 2);
+check('bibliothèque : taille maximale respectée', count($library->entries(3, 'host00000001')), 2);
+check('bibliothèque : suppression des clips d\'une ancienne voix', $library->deleteObsolete(3, 'host00000001', $sig), 1);
+check('bibliothèque : suppression d\'un clip', $library->delete(3, 'host00000001', $library->entries(3, 'host00000001')[0]['id']), true);
+check('bibliothèque : vide', $library->entries(3, 'host00000001'), []);
+$library->deleteHost(3, 'host00000001');
+check('bibliothèque : animateur supprimé', $library->hosts(3), []);
+exec('rm -rf ' . escapeshellarg($root));
+
+$statsRoot = sys_get_temp_dir() . '/av-stats-' . bin2hex(random_bytes(4));
+mkdir($statsRoot);
+$statsJobs = new Jobs($statsRoot);
+$day = $at('2026-11-16 08:00');
+foreach ([['status' => 'done'], ['status' => 'done', 'reused' => true], ['status' => 'failed'], ['status' => 'skipped'], ['status' => 'pending', 'reuse_only' => true]] as $j) {
+    $statsJobs->create(1, $day, $j);
+}
+check('limite : les clips réutilisés ne comptent pas', $statsJobs->todayStats(1, $day), ['generated' => 2, 'reused' => 1]);
+exec('rm -rf ' . escapeshellarg($statsRoot));
 
 // --- Real mix, if ffmpeg is installed ------------------------------------------------------------
 if (Shell::which('ffmpeg') !== null) {

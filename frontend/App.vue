@@ -93,9 +93,12 @@
                                 Aucun animateur programmé en ce moment.
                             </template>
                             <br>
-                            Interventions aujourd'hui : <strong>{{ status.today }}</strong>
+                            Interventions générées aujourd'hui : <strong>{{ status.today }}</strong>
                             <template v-if="settings.limits.daily_enabled">
                                 / {{ settings.limits.daily_max }}
+                            </template>
+                            <template v-if="status.today_reused">
+                                · réutilisées : <strong>{{ status.today_reused }}</strong>
                             </template>
                         </div>
                     </div>
@@ -885,6 +888,143 @@
                     </div>
                 </div>
 
+                <!-- Bibliothèque -->
+                <div
+                    v-show="tab === 'library'"
+                    class="card-body pt-0"
+                >
+                    <p class="text-body-secondary">
+                        Voix enregistrées à partir des prompts « intemporels », réutilisables sur un nouveau fond musical
+                        sans appel aux API. Écoutez-les et supprimez celles qui ne conviennent pas.
+                    </p>
+                    <div class="buttons mb-3">
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            :disabled="libraryLoading"
+                            @click="loadLibrary()"
+                        >
+                            Actualiser
+                        </button>
+                    </div>
+                    <p
+                        v-if="library.length === 0"
+                        class="mb-0"
+                    >
+                        {{ libraryLoading ? 'Chargement…' : 'Aucun animateur.' }}
+                    </p>
+                    <div
+                        v-for="lib in library"
+                        :key="lib.host_id"
+                        class="card mb-3"
+                    >
+                        <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                            <h3 class="fs-6 mb-0 me-auto">
+                                {{ lib.name }}
+                                <span class="badge text-bg-secondary ms-1">{{ lib.valid }} clip(s)</span>
+                            </h3>
+                            <small class="text-body-secondary">
+                                <template v-if="!lib.config.enabled">
+                                    Réutilisation désactivée (la bibliothèque se remplit quand même)
+                                </template>
+                                <template v-else-if="lib.valid < lib.config.min_size">
+                                    Réutilisation à partir de {{ lib.config.min_size }} clips
+                                </template>
+                                <template v-else>
+                                    Réutilisation actuelle : {{ Math.round(lib.share * 100) }} % des interventions entre
+                                    deux morceaux
+                                </template>
+                            </small>
+                            <button
+                                v-if="lib.entries.some((e) => e.obsolete)"
+                                type="button"
+                                class="btn btn-sm btn-outline-danger"
+                                @click="deleteObsolete(lib)"
+                            >
+                                Supprimer les clips de l'ancienne voix
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div
+                                v-if="lib.timeless_prompts === 0"
+                                class="alert alert-warning py-2"
+                            >
+                                Aucun prompt actif de cet animateur n'est marqué « intemporel » : la bibliothèque ne se
+                                remplit pas.
+                            </div>
+                            <p
+                                v-if="lib.entries.length === 0"
+                                class="mb-0 text-body-secondary"
+                            >
+                                Bibliothèque vide pour l'instant.
+                            </p>
+                            <div
+                                v-else
+                                class="table-responsive"
+                            >
+                                <table class="table table-sm table-striped align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Texte</th>
+                                            <th>Diffusions</th>
+                                            <th>Écoute</th>
+                                            <th />
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr
+                                            v-for="entry in lib.entries"
+                                            :key="entry.id"
+                                        >
+                                            <td class="small">
+                                                <div class="av-text">
+                                                    {{ entry.text }}
+                                                </div>
+                                                <div class="text-body-secondary">
+                                                    Créé le {{ formatTimestamp(entry.created_at) }}
+                                                    <template v-if="entry.prompt_name">
+                                                        · {{ entry.prompt_name }}
+                                                    </template>
+                                                    <span
+                                                        v-if="entry.obsolete"
+                                                        class="badge text-bg-warning ms-1"
+                                                        title="Enregistré avec une autre voix ou d'autres réglages : n'est plus réutilisé"
+                                                    >Ancienne voix</span>
+                                                </div>
+                                            </td>
+                                            <td class="small text-nowrap">
+                                                {{ entry.uses }}
+                                                <div
+                                                    v-if="entry.last_used_at"
+                                                    class="text-body-secondary"
+                                                >
+                                                    dernière : {{ formatTimestamp(entry.last_used_at) }}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <audio
+                                                    controls
+                                                    preload="none"
+                                                    :src="api.libraryAudioUrl(lib.host_id, entry.id)"
+                                                />
+                                            </td>
+                                            <td class="text-end">
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-sm btn-danger"
+                                                    @click="deleteEntry(lib, entry)"
+                                                >
+                                                    Supprimer
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Historique -->
                 <div
                     v-show="tab === 'history'"
@@ -955,6 +1095,16 @@
                                             class="badge"
                                             :class="(statuses[job.status] || {}).cls"
                                         >{{ (statuses[job.status] || {}).label || job.status }}</span>
+                                        <span
+                                            v-if="job.reused"
+                                            class="badge text-bg-primary ms-1"
+                                            title="Voix reprise de la bibliothèque : aucun appel aux API"
+                                        >Réutilisée</span>
+                                        <span
+                                            v-else-if="job.library_id"
+                                            class="badge text-bg-light border ms-1"
+                                            title="Voix ajoutée à la bibliothèque"
+                                        >+ bibliothèque</span>
                                         <div
                                             v-if="job.duration"
                                             class="small text-body-secondary"
@@ -977,6 +1127,12 @@
                                             class="text-danger"
                                         >
                                             {{ job.error }}
+                                        </div>
+                                        <div
+                                            v-if="job.library_note"
+                                            class="text-body-secondary fst-italic"
+                                        >
+                                            {{ job.library_note }}
                                         </div>
                                         <div
                                             v-if="job.bed && job.bed.title"
@@ -1010,7 +1166,7 @@
                 </div>
 
                 <div
-                    v-show="tab !== 'history'"
+                    v-show="tab !== 'history' && tab !== 'library'"
                     class="card-footer av-save-bar d-flex align-items-center gap-3"
                 >
                     <button
@@ -1106,6 +1262,12 @@
                                     · fond : {{ testResult.bed.title }}
                                 </template>
                             </p>
+                            <p
+                                v-if="testResult.library_note"
+                                class="small text-body-secondary fst-italic mt-1 mb-0"
+                            >
+                                {{ testResult.library_note }}
+                            </p>
                         </div>
                         <div class="modal-footer">
                             <button
@@ -1138,7 +1300,7 @@ import { createApi } from "./api.js";
 import HostModal from "./HostModal.vue";
 import {
     DEEPSEEK_MODELS, ELEVENLABS_MODELS, KINDS, STATUSES,
-    clone, describeSlot, findOverlaps, formatDateTime, formatDuration,
+    clone, describeSlot, findOverlaps, formatDateTime, formatDuration, formatTimestamp,
 } from "./helpers.js";
 
 const props = defineProps({
@@ -1151,6 +1313,7 @@ const tabs = [
     { key: "services", label: "Services IA" },
     { key: "sound", label: "Fond musical et son" },
     { key: "prompt", label: "Consignes générales" },
+    { key: "library", label: "Bibliothèque" },
     { key: "history", label: "Historique" },
 ];
 const kinds = KINDS;
@@ -1178,6 +1341,8 @@ const testResult = ref(null);
 const editing = ref(null);
 const history = ref([]);
 const historyLoading = ref(false);
+const library = ref([]);
+const libraryLoading = ref(false);
 const expanded = reactive({});
 const deepSeekModels = ref([...DEEPSEEK_MODELS]);
 let timer = null;
@@ -1252,6 +1417,7 @@ function clearMask(service) {
 function openTab(key) {
     tab.value = key;
     if (key === "history") loadHistory();
+    if (key === "library") loadLibrary();
 }
 
 function playlistLabel(p) {
@@ -1384,6 +1550,40 @@ async function clearHistory() {
         const result = await api.clearHistory();
         notice.value = { type: "success", text: result.message };
         await loadHistory();
+    } catch (error) {
+        notice.value = { type: "error", text: error.message };
+    }
+}
+
+async function loadLibrary() {
+    libraryLoading.value = true;
+    try {
+        library.value = (await api.library()).hosts;
+    } catch (error) {
+        notice.value = { type: "error", text: error.message };
+    } finally {
+        libraryLoading.value = false;
+    }
+}
+
+async function deleteEntry(lib, entry) {
+    if (!window.confirm(`Supprimer ce clip de la bibliothèque de « ${lib.name} » ?\n\n${entry.text}`)) return;
+    try {
+        const result = await api.libraryDelete(lib.host_id, entry.id);
+        notice.value = { type: "success", text: result.message };
+        lib.entries = lib.entries.filter((e) => e.id !== entry.id);
+        if (!entry.obsolete) lib.valid -= 1;
+    } catch (error) {
+        notice.value = { type: "error", text: error.message };
+    }
+}
+
+async function deleteObsolete(lib) {
+    if (!window.confirm(`Supprimer les clips de « ${lib.name} » enregistrés avec une ancienne voix ?`)) return;
+    try {
+        const result = await api.libraryDeleteObsolete(lib.host_id);
+        notice.value = { type: "success", text: result.message };
+        await loadLibrary();
     } catch (error) {
         notice.value = { type: "error", text: error.message };
     }

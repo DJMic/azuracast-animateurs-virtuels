@@ -45,5 +45,9 @@ export function createApi(base) {
         checkElevenLabs: (apiKey, voiceId) => post("/check/elevenlabs", {api_key: apiKey, voice_id: voiceId}),
         preview: (payload) => post("/preview", payload),
         clipUrl: (jobId) => `${base}/clips/${encodeURIComponent(jobId)}`,
+        library: () => request("/library"),
+        libraryDelete: (hostId, id) => post(`/library/${encodeURIComponent(hostId)}/${encodeURIComponent(id)}/delete`),
+        libraryDeleteObsolete: (hostId) => post(`/library/${encodeURIComponent(hostId)}/obsolete/delete`),
+        libraryAudioUrl: (hostId, id) => `${base}/library/${encodeURIComponent(hostId)}/${encodeURIComponent(id)}/audio`,
     };
 }

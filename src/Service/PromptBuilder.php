@@ -125,6 +125,9 @@ final class PromptBuilder
         }
 
         $user = self::fill((string)$prompt['text'], $variables);
+        if (!empty($prompt['timeless'])) {
+            $user .= "\n\n" . Library::TIMELESS_INSTRUCTION;
+        }
         if (str_contains($system . $user, self::MISSING)) {
             $system .= "\n\nSi une information est indiquée comme non disponible, n'en parle pas.";
         }

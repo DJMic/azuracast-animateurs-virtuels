@@ -13,6 +13,7 @@ use App\Event\Radio\BuildQueue;
 use DateTimeImmutable;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
+use Plugin\AzuracastAnimateursVirtuels\Service\Library;
 use Plugin\AzuracastAnimateursVirtuels\Service\Planner;
 use Plugin\AzuracastAnimateursVirtuels\Service\Plugin;
 use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
@@ -49,6 +50,7 @@ final class QueueSubscriber implements EventSubscriberInterface
     public function __construct(
         private readonly Store $store,
         private readonly Jobs $jobs,
+        private readonly Library $library,
         private readonly Launcher $launcher,
         private readonly EventDispatcherInterface $dispatcher,
         private readonly ReloadableEntityManagerInterface $em,
@@ -142,11 +144,22 @@ final class QueueSubscriber implements EventSubscriberInterface
 
         $host = $onAir['host'];
         $now = new DateTimeImmutable('now', $station->getTimezoneObject());
+        $reuseOnly = false;
         if (!empty($settings['limits']['daily_enabled'])
             && $this->jobs->countToday($stationId, $now) >= (int)$settings['limits']['daily_max']) {
-            $this->logger->notice('Animateurs virtuels : limite quotidienne atteinte, intervention ignorée.', ['station' => $stationId]);
+            // Limit reached: the library can still provide a clip (no API call), if allowed.
+            $config = Library::config($host);
+            $signature = Library::voiceSignature($settings, $host);
+            $available = !empty($config['enabled']) && !empty($config['fallback']) && array_filter(
+                $this->library->entries($stationId, $host['id']),
+                static fn(array $e): bool => ($e['signature'] ?? '') === $signature
+            ) !== [];
+            if (!$available) {
+                $this->logger->notice('Animateurs virtuels : limite quotidienne atteinte, intervention ignorée.', ['station' => $stationId]);
 
-            return null;
+                return null;
+            }
+            $reuseOnly = true;
         }
         $prompt = Planner::pickPrompt($host, $decision['kind']);
         if ($prompt === null) {
@@ -173,6 +186,7 @@ final class QueueSubscriber implements EventSubscriberInterface
             'prompt_name' => $prompt['name'],
             'variables' => $variables,
             'queued' => true,
+            'reuse_only' => $reuseOnly,
         ]);
 
         $title = str_replace(PromptBuilder::MISSING, '', PromptBuilder::fill($settings['output']['meta_title'], $variables));

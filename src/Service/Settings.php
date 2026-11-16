@@ -98,6 +98,7 @@ final class Settings
                     'name' => 'Enchaînement',
                     'usage' => 'between',
                     'enabled' => true,
+                    'timeless' => false,
                     'text' => 'Fais une courte transition : on vient d\'écouter « {titre_precedent} » de '
                         . '{artiste_precedent}, et tu annonces « {titre_suivant} » de {artiste_suivant}.',
                 ],
@@ -106,10 +107,21 @@ final class Settings
                     'name' => 'Heure',
                     'usage' => 'fixed',
                     'enabled' => true,
+                    'timeless' => false,
                     'text' => 'Donne l\'heure ({heure}), salue les auditeurs en ce {jour} {moment} et rappelle '
                         . 'qu\'ils écoutent {station}.',
                 ],
+                [
+                    'id' => '',
+                    'name' => 'Ambiance (réutilisable)',
+                    'usage' => 'between',
+                    'enabled' => true,
+                    'timeless' => true,
+                    'text' => 'Dis une courte phrase chaleureuse pour rappeler aux auditeurs qu\'ils écoutent {station} '
+                        . 'et leur donner envie de rester à l\'écoute. Varie le ton et les idées à chaque fois.',
+                ],
             ],
+            'library' => Library::DEFAULTS,
             'slots' => [
                 [
                     'id' => '',
@@ -261,6 +273,22 @@ final class Settings
             'slots' => [],
         ];
 
+        $library = is_array($in['library'] ?? null) ? $in['library'] : [];
+        $host['library'] = [
+            'enabled' => self::bool($library['enabled'] ?? false),
+            'min_size' => self::int($library['min_size'] ?? 20, 1, 1000),
+            'max_share' => self::int($library['max_share'] ?? 60, 0, 100),
+            'min_gap_days' => self::int($library['min_gap_days'] ?? 3, 0, 365),
+            'max_uses' => self::int($library['max_uses'] ?? 0, 0, 1000),
+            'max_size' => self::int($library['max_size'] ?? 200, 5, 2000),
+            'fallback' => self::bool($library['fallback'] ?? true),
+        ];
+        if ($host['library']['max_size'] < $host['library']['min_size']) {
+            throw new InvalidArgumentException(
+                '« ' . $name . ' » : la taille maximale de la bibliothèque doit être au moins égale à la taille minimale.'
+            );
+        }
+
         foreach (is_array($in['prompts'] ?? null) ? $in['prompts'] : [] as $prompt) {
             if (!is_array($prompt)) {
                 continue;
@@ -270,11 +298,20 @@ final class Settings
                 continue;
             }
             $usage = (string)($prompt['usage'] ?? 'all');
+            $timeless = self::bool($prompt['timeless'] ?? false);
+            $promptName = self::text($prompt['name'] ?? '', 80) ?: 'Prompt ' . (count($host['prompts']) + 1);
+            if ($timeless && ($vars = Library::contextVariables($text)) !== []) {
+                throw new InvalidArgumentException(
+                    '« ' . $name . ' », prompt « ' . $promptName . ' » : un prompt réutilisable ne peut pas contenir '
+                    . implode(', ', array_map(static fn(string $v): string => '{' . $v . '}', $vars)) . '.'
+                );
+            }
             $host['prompts'][] = [
                 'id' => self::uid($prompt['id'] ?? ''),
-                'name' => self::text($prompt['name'] ?? '', 80) ?: 'Prompt ' . (count($host['prompts']) + 1),
+                'name' => $promptName,
                 'usage' => in_array($usage, self::PROMPT_USAGES, true) ? $usage : 'all',
                 'enabled' => self::bool($prompt['enabled'] ?? true),
+                'timeless' => $timeless,
                 'text' => $text,
             ];
         }

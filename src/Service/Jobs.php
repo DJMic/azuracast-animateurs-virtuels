@@ -163,17 +163,34 @@ final class Jobs
         return $jobs;
     }
 
-    /** Interventions counted against the daily limit (everything that was or will be generated). */
+    /**
+     * Interventions counted against the daily limit: everything that was or will be generated
+     * through the APIs. Clips reused from the library cost nothing and are not counted.
+     */
     public function countToday(int $stationId, DateTimeImmutable $localNow): int
     {
-        $count = 0;
+        return $this->todayStats($stationId, $localNow)['generated'];
+    }
+
+    /** @return array{generated: int, reused: int} */
+    public function todayStats(int $stationId, DateTimeImmutable $localNow): array
+    {
+        $stats = ['generated' => 0, 'reused' => 0];
         foreach ($this->list($stationId, 10000, $localNow->format('Ymd') . '-') as $job) {
-            if (($job['status'] ?? '') !== 'skipped') {
-                $count++;
+            $status = $job['status'] ?? '';
+            if ($status === 'skipped') {
+                continue;
+            }
+            if (!empty($job['reused'])) {
+                if ($status === 'done') {
+                    $stats['reused']++;
+                }
+            } elseif (empty($job['reuse_only'])) {
+                $stats['generated']++;
             }
         }
 
-        return $count;
+        return $stats;
     }
 
     /** @return string[] last texts of a host, most recent first */

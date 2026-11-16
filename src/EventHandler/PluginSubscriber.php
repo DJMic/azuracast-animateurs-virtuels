@@ -64,6 +64,10 @@ final class PluginSubscriber implements EventSubscriberInterface
                 $group->post('/check/deepseek', PanelController::class . ':checkDeepSeekAction');
                 $group->post('/check/elevenlabs', PanelController::class . ':checkElevenLabsAction');
                 $group->post('/preview', PanelController::class . ':previewAction');
+                $group->get('/library', PanelController::class . ':libraryAction');
+                $group->get('/library/{host_id}/{entry_id}/audio', PanelController::class . ':libraryAudioAction');
+                $group->post('/library/{host_id}/obsolete/delete', PanelController::class . ':libraryObsoleteAction');
+                $group->post('/library/{host_id}/{entry_id}/delete', PanelController::class . ':libraryDeleteAction');
             }
         )
             ->add(new Middleware\Permissions(StationPermissions::Media, true))
