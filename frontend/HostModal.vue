@@ -97,6 +97,34 @@
                             <div class="col-md-6">
                                 <label
                                     class="form-label"
+                                    for="av-h-account"
+                                >Compte ElevenLabs</label>
+                                <select
+                                    id="av-h-account"
+                                    v-model="form.account_id"
+                                    class="form-select"
+                                    :disabled="accounts.length === 0"
+                                >
+                                    <option
+                                        v-for="a in accounts"
+                                        :key="a.id || a.name"
+                                        :value="a.id"
+                                    >
+                                        {{ a.name }}
+                                    </option>
+                                </select>
+                                <div class="form-text">
+                                    <template v-if="accounts.length === 0">
+                                        Ajoutez d'abord un compte dans l'onglet « Services IA » et enregistrez.
+                                    </template>
+                                    <template v-else>
+                                        La voix doit appartenir à ce compte. Ses crédits sont décomptés de ce compte.
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label
+                                    class="form-label"
                                     for="av-h-voice"
                                 >Voice ID ElevenLabs</label>
                                 <div class="input-group">
@@ -680,7 +708,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { DAYS, USAGES, clone, contextVariables } from "./helpers.js";
 
 const props = defineProps({
@@ -714,6 +742,9 @@ const form = reactive(clone(props.host));
 // Hosts saved before version 1.1.0 have no library settings.
 form.library = { enabled: false, min_size: 20, max_share: 60, min_gap_days: 3, max_uses: 0, max_size: 200, fallback: true, ...(form.library || {}) };
 form.prompts.forEach((p) => { p.timeless = Boolean(p.timeless); });
+// Saved accounts only (a new account needs to be saved before a host can use it).
+const accounts = computed(() => props.settings.elevenlabs.accounts.filter((a) => a.id));
+if (!accounts.value.some((a) => a.id === form.account_id)) form.account_id = accounts.value[0]?.id || "";
 const originalName = props.host.name;
 const tab = ref("general");
 const saving = ref(false);
@@ -747,8 +778,9 @@ async function checkVoice() {
     checking.value = true;
     voiceMessage.value = { type: "", text: "Vérification…" };
     try {
-        const key = props.settings.elevenlabs.api_key;
-        const result = await props.api.checkElevenLabs(key, form.voice_id);
+        const account = accounts.value.find((a) => a.id === form.account_id);
+        if (!account) throw new Error("Choisissez d'abord un compte ElevenLabs.");
+        const result = await props.api.checkElevenLabs(account.api_key, form.voice_id, account.id);
         voiceMessage.value = { type: "ok", text: result.message };
     } catch (e) {
         voiceMessage.value = { type: "error", text: e.message };

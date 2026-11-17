@@ -27,6 +27,11 @@ final class Settings
 
     public const array PROMPT_USAGES = ['all', 'between', 'fixed'];
 
+    public const int MAX_ACCOUNTS = 5;
+
+    /** Id given to the key of versions before 1.3.0. */
+    public const string LEGACY_ACCOUNT_ID = 'compte1';
+
     public static function defaults(): array
     {
         return [
@@ -40,9 +45,10 @@ final class Settings
                 'thinking' => false,
             ],
             'elevenlabs' => [
-                'api_key' => '',
+                'accounts' => [],
                 'model_id' => 'eleven_v4',
                 'language_code' => 'fr',
+                'low_credits' => 500,
             ],
             'system_prompt' => self::DEFAULT_SYSTEM_PROMPT,
             'radio_style' => true,
@@ -93,6 +99,7 @@ final class Settings
                 'speaker_boost' => true,
             ],
             'bed_playlist_id' => null,
+            'account_id' => '',
             'prompts' => [
                 [
                     'id' => '',
@@ -142,6 +149,17 @@ final class Settings
     public static function withDefaults(array $stored): array
     {
         $settings = self::mergeDeep(self::defaults(), $stored);
+
+        // Before version 1.3.0: a single ElevenLabs key, which becomes "Compte 1".
+        $legacyKey = (string)($settings['elevenlabs']['api_key'] ?? '');
+        unset($settings['elevenlabs']['api_key']);
+        if (!is_array($settings['elevenlabs']['accounts'])) {
+            $settings['elevenlabs']['accounts'] = [];
+        }
+        if ($settings['elevenlabs']['accounts'] === [] && $legacyKey !== '') {
+            $settings['elevenlabs']['accounts'][] = ['id' => self::LEGACY_ACCOUNT_ID, 'name' => 'Compte 1', 'api_key' => $legacyKey];
+        }
+
         $settings['hosts'] = array_values(array_map(
             static fn(mixed $host): array => self::mergeDeep(
                 array_diff_key(self::defaultHost(), ['prompts' => 1, 'slots' => 1]) + ['prompts' => [], 'slots' => []],
@@ -176,10 +194,38 @@ final class Settings
         ];
 
         $el = is_array($input['elevenlabs'] ?? null) ? $input['elevenlabs'] : [];
+        $currentKeys = array_column($current['elevenlabs']['accounts'], 'api_key', 'id');
+        $accounts = [];
+        $accountNames = [];
+        foreach (is_array($el['accounts'] ?? null) ? $el['accounts'] : [] as $account) {
+            if (!is_array($account)) {
+                continue;
+            }
+            $id = self::uid($account['id'] ?? '');
+            $accountName = self::text($account['name'] ?? '', 60) ?: 'Compte ' . (count($accounts) + 1);
+            if (isset($accountNames[mb_strtolower($accountName)])) {
+                throw new InvalidArgumentException('Deux comptes ElevenLabs portent le nom « ' . $accountName . ' ».');
+            }
+            $accountNames[mb_strtolower($accountName)] = true;
+            $accounts[] = [
+                'id' => $id,
+                'name' => $accountName,
+                'api_key' => self::secret($account, (string)($currentKeys[$id] ?? '')),
+            ];
+        }
+        if (count($accounts) > self::MAX_ACCOUNTS) {
+            throw new InvalidArgumentException('Au maximum ' . self::MAX_ACCOUNTS . ' comptes ElevenLabs par station.');
+        }
+        foreach ($accounts as $account) {
+            if ($account['api_key'] === '') {
+                throw new InvalidArgumentException('Renseignez la clé API du compte ElevenLabs « ' . $account['name'] . ' ».');
+            }
+        }
         $out['elevenlabs'] = [
-            'api_key' => self::secret($el, $current['elevenlabs']['api_key']),
+            'accounts' => $accounts,
             'model_id' => self::text($el['model_id'] ?? '', 80) ?: $d['elevenlabs']['model_id'],
             'language_code' => strtolower(self::text($el['language_code'] ?? '', 5)),
+            'low_credits' => self::int($el['low_credits'] ?? 500, 0, 1000000),
         ];
         if ($out['elevenlabs']['language_code'] !== '' && !preg_match('/^[a-z]{2,3}$/', $out['elevenlabs']['language_code'])) {
             throw new InvalidArgumentException('Code de langue ElevenLabs invalide (exemple : fr).');
@@ -232,10 +278,24 @@ final class Settings
             $out['hosts'][] = $host;
         }
 
+        // Each host uses one of the accounts (the first one if none is chosen).
+        $accountIds = array_column($accounts, 'id');
+        foreach ($out['hosts'] as &$host) {
+            if (!in_array($host['account_id'], $accountIds, true)) {
+                if ($host['account_id'] !== '' && $host['enabled']) {
+                    throw new InvalidArgumentException(
+                        'Le compte ElevenLabs choisi pour « ' . $host['name'] . ' » n\'existe plus : choisissez-en un autre.'
+                    );
+                }
+                $host['account_id'] = $accountIds[0] ?? '';
+            }
+        }
+        unset($host);
+
         if ($out['enabled']) {
-            if ($out['deepseek']['api_key'] === '' || $out['elevenlabs']['api_key'] === '') {
+            if ($out['deepseek']['api_key'] === '' || $accounts === []) {
                 throw new InvalidArgumentException(
-                    'Pour activer les animateurs virtuels, renseignez la clé API DeepSeek et la clé API ElevenLabs.'
+                    'Pour activer les animateurs virtuels, renseignez la clé API DeepSeek et au moins un compte ElevenLabs.'
                 );
             }
         }
@@ -271,6 +331,7 @@ final class Settings
                 'speaker_boost' => self::bool($voice['speaker_boost'] ?? true),
             ],
             'bed_playlist_id' => self::id($in['bed_playlist_id'] ?? null),
+            'account_id' => preg_match('/^[a-z0-9]{6,32}$/', (string)($in['account_id'] ?? '')) ? (string)$in['account_id'] : '',
             'prompts' => [],
             'slots' => [],
         ];
@@ -381,11 +442,15 @@ final class Settings
     public static function forDisplay(array $settings): array
     {
         $settings = self::withDefaults($settings);
-        foreach (['deepseek', 'elevenlabs'] as $service) {
-            $key = $settings[$service]['api_key'];
-            $settings[$service]['api_key'] = $key !== '' ? self::MASK : '';
-            $settings[$service]['api_key_hint'] = $key !== '' ? '…' . mb_substr($key, -4) : '';
+        $key = $settings['deepseek']['api_key'];
+        $settings['deepseek']['api_key'] = $key !== '' ? self::MASK : '';
+        $settings['deepseek']['api_key_hint'] = $key !== '' ? '…' . mb_substr($key, -4) : '';
+        foreach ($settings['elevenlabs']['accounts'] as &$account) {
+            $key = (string)$account['api_key'];
+            $account['api_key'] = $key !== '' ? self::MASK : '';
+            $account['api_key_hint'] = $key !== '' ? '…' . mb_substr($key, -4) : '';
         }
+        unset($account);
 
         return $settings;
     }
@@ -405,7 +470,43 @@ final class Settings
     {
         return !empty($settings['enabled'])
             && ($settings['deepseek']['api_key'] ?? '') !== ''
-            && ($settings['elevenlabs']['api_key'] ?? '') !== '';
+            && ($settings['elevenlabs']['accounts'] ?? []) !== [];
+    }
+
+    /** ElevenLabs account of a host (its own, else the first one), or null. */
+    public static function account(array $settings, array $host): ?array
+    {
+        $accounts = $settings['elevenlabs']['accounts'] ?? [];
+        foreach ($accounts as $account) {
+            if ($account['id'] === ($host['account_id'] ?? '')) {
+                return $account;
+            }
+        }
+
+        return $accounts[0] ?? null;
+    }
+
+    public static function findAccount(array $settings, string $accountId): ?array
+    {
+        foreach ($settings['elevenlabs']['accounts'] ?? [] as $account) {
+            if ($account['id'] === $accountId) {
+                return $account;
+            }
+        }
+
+        return null;
+    }
+
+    /** ElevenLabs request settings for a host: model, language and the key of its account. */
+    public static function voiceConfig(array $settings, array $host): array
+    {
+        $account = self::account($settings, $host);
+
+        return [
+            'api_key' => (string)($account['api_key'] ?? ''),
+            'model_id' => $settings['elevenlabs']['model_id'],
+            'language_code' => $settings['elevenlabs']['language_code'],
+        ];
     }
 
     // --- helpers --------------------------------------------------------------------------------

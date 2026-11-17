@@ -100,6 +100,22 @@
                             <template v-if="status.today_reused">
                                 · réutilisées : <strong>{{ status.today_reused }}</strong>
                             </template>
+                            <template
+                                v-for="c in status.credits || []"
+                                :key="c.id"
+                            >
+                                <br>
+                                ElevenLabs {{ c.name }} :
+                                <span
+                                    v-if="c.error"
+                                    class="text-warning-emphasis"
+                                    :title="c.error"
+                                >crédits illisibles</span>
+                                <strong
+                                    v-else-if="c.remaining !== null"
+                                    :class="c.exhausted ? 'text-danger' : (c.low ? 'text-warning-emphasis' : '')"
+                                >{{ formatNumber(c.remaining) }} crédits restants</strong>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -382,44 +398,112 @@
                             </div>
                         </fieldset>
 
-                        <fieldset class="col-lg-6">
+                        <fieldset class="col-12">
                             <legend class="fs-5">
                                 ElevenLabs (voix)
                             </legend>
-                            <div class="mb-3">
-                                <label
-                                    class="form-label"
-                                    for="av-el-key"
-                                >Clé API ElevenLabs</label>
-                                <div class="input-group">
-                                    <input
-                                        id="av-el-key"
-                                        v-model="settings.elevenlabs.api_key"
-                                        type="password"
-                                        class="form-control"
-                                        autocomplete="new-password"
-                                        placeholder="sk_…"
-                                        @focus="clearMask('elevenlabs')"
-                                    >
-                                    <button
-                                        type="button"
-                                        class="btn btn-secondary"
-                                        :disabled="checking === 'elevenlabs'"
-                                        @click="checkElevenLabs"
-                                    >
-                                        Vérifier
-                                    </button>
+                            <p class="form-text mt-0">
+                                Jusqu'à {{ maxAccounts }} comptes ElevenLabs pour cette station. Chaque animateur utilise
+                                les voix et les crédits d'un compte (onglet « Animateur » de sa fiche). Chaque clé doit avoir
+                                les permissions « Text to Speech », « Voices : lecture » et, pour afficher les crédits,
+                                « User : lecture ».
+                            </p>
+                            <div
+                                v-for="(account, index) in settings.elevenlabs.accounts"
+                                :key="account.id || `new-${index}`"
+                                class="border rounded p-3 mb-3"
+                            >
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-3">
+                                        <label
+                                            class="form-label"
+                                            :for="`av-acc-name-${index}`"
+                                        >Nom du compte</label>
+                                        <input
+                                            :id="`av-acc-name-${index}`"
+                                            v-model="account.name"
+                                            class="form-control"
+                                            maxlength="60"
+                                        >
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label
+                                            class="form-label"
+                                            :for="`av-acc-key-${index}`"
+                                        >Clé API</label>
+                                        <div class="input-group">
+                                            <input
+                                                :id="`av-acc-key-${index}`"
+                                                v-model="account.api_key"
+                                                type="password"
+                                                class="form-control"
+                                                autocomplete="new-password"
+                                                placeholder="sk_…"
+                                                @focus="account.api_key === '••••••••' && (account.api_key = '')"
+                                            >
+                                            <button
+                                                type="button"
+                                                class="btn btn-secondary"
+                                                :disabled="checking === `account-${index}`"
+                                                @click="checkAccount(account, index)"
+                                            >
+                                                Vérifier
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 text-md-end">
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-danger"
+                                            :disabled="accountUsers(account).length > 0"
+                                            :title="accountUsers(account).length ? 'Utilisé par ' + accountUsers(account).join(', ') : ''"
+                                            @click="settings.elevenlabs.accounts.splice(index, 1)"
+                                        >
+                                            Retirer
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="form-text">
-                                    <template v-if="settings.elevenlabs.api_key_hint">
-                                        Clé enregistrée ({{ settings.elevenlabs.api_key_hint }}).
+                                    <template v-if="account.api_key_hint">
+                                        Clé enregistrée ({{ account.api_key_hint }}).
                                     </template>
-                                    La vérification utilise le Voice ID du premier animateur. La clé doit avoir les
-                                    permissions « Text to Speech » et « Voices : lecture ».
+                                    <template v-if="accountUsers(account).length">
+                                        Utilisé par : {{ accountUsers(account).join(', ') }}.
+                                    </template>
+                                    <template v-else-if="account.id">
+                                        Aucun animateur n'utilise ce compte.
+                                    </template>
                                 </div>
+                                <CreditsBar
+                                    v-if="creditsFor(account)"
+                                    class="mt-2"
+                                    :credits="creditsFor(account)"
+                                />
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary"
+                                    :disabled="settings.elevenlabs.accounts.length >= maxAccounts"
+                                    @click="addAccount"
+                                >
+                                    Ajouter un compte ElevenLabs
+                                </button>
+                                <button
+                                    v-if="settings.elevenlabs.accounts.length"
+                                    type="button"
+                                    class="btn btn-outline-secondary"
+                                    :disabled="creditsLoading"
+                                    @click="refreshCredits"
+                                >
+                                    Actualiser les crédits
+                                </button>
+                                <small class="text-body-secondary">
+                                    Les crédits sont relus toutes les 10 minutes et après chaque intervention générée.
+                                </small>
                             </div>
                             <div class="row g-3">
-                                <div class="col-sm-8">
+                                <div class="col-sm-6">
                                     <label
                                         class="form-label"
                                         for="av-el-model"
@@ -439,6 +523,19 @@
                                     </select>
                                 </div>
                                 <div class="col-sm-4">
+                                    <label
+                                        class="form-label"
+                                        for="av-el-low"
+                                    >Alerte sous (crédits)</label>
+                                    <input
+                                        id="av-el-low"
+                                        v-model.number="settings.elevenlabs.low_credits"
+                                        type="number"
+                                        min="0"
+                                        class="form-control"
+                                    >
+                                </div>
+                                <div class="col-sm-2">
                                     <label
                                         class="form-label"
                                         for="av-el-lang"
@@ -1110,6 +1207,9 @@
                                             {{ kinds[job.kind] || job.kind }}<template v-if="job.prompt_name">
                                                 · {{ job.prompt_name }}
                                             </template>
+                                            <template v-if="job.account_name && !job.reused">
+                                                · {{ job.account_name }}
+                                            </template>
                                         </div>
                                     </td>
                                     <td>
@@ -1320,9 +1420,10 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { createApi } from "./api.js";
 import HostModal from "./HostModal.vue";
+import CreditsBar from "./CreditsBar.vue";
 import {
     DEEPSEEK_MODELS, ELEVENLABS_MODELS, KINDS, STATUSES,
-    clone, describeSlot, findOverlaps, formatDateTime, formatDuration, formatTimestamp,
+    clone, describeSlot, findOverlaps, formatDateTime, formatDuration, formatNumber, formatTimestamp,
 } from "./helpers.js";
 
 const props = defineProps({
@@ -1363,6 +1464,8 @@ const testResult = ref(null);
 const editing = ref(null);
 const history = ref([]);
 const historyLoading = ref(false);
+const creditsLoading = ref(false);
+const maxAccounts = 5;
 const library = ref([]);
 const libraryLoading = ref(false);
 const expanded = reactive({});
@@ -1526,20 +1629,44 @@ async function checkDeepSeek() {
     }
 }
 
-async function checkElevenLabs() {
-    const voiceId = settings.value.hosts.find((h) => h.voice_id)?.voice_id;
-    if (!voiceId) {
-        notice.value = { type: "error", text: "Ajoutez d'abord un animateur avec un Voice ID." };
-        return;
-    }
-    checking.value = "elevenlabs";
+function accountUsers(account) {
+    const first = settings.value.elevenlabs.accounts[0];
+    return settings.value.hosts
+        .filter((h) => h.account_id === account.id || (!h.account_id && first === account))
+        .map((h) => h.name);
+}
+
+function creditsFor(account) {
+    return (status.value.credits || []).find((c) => c.id === account.id) || null;
+}
+
+function addAccount() {
+    settings.value.elevenlabs.accounts.push({
+        id: "", name: `Compte ${settings.value.elevenlabs.accounts.length + 1}`, api_key: "",
+    });
+}
+
+async function checkAccount(account, index) {
+    checking.value = `account-${index}`;
     try {
-        const result = await api.checkElevenLabs(settings.value.elevenlabs.api_key, voiceId);
-        notice.value = { type: "success", text: result.message };
+        const result = await api.checkElevenLabs(account.api_key, "", account.id);
+        notice.value = { type: "success", text: `${account.name} : ${result.message}` };
+    } catch (error) {
+        notice.value = { type: "error", text: `${account.name} : ${error.message}` };
+    } finally {
+        checking.value = null;
+    }
+}
+
+async function refreshCredits() {
+    creditsLoading.value = true;
+    try {
+        const data = await api.credits(true);
+        status.value = { ...status.value, credits: data.credits };
     } catch (error) {
         notice.value = { type: "error", text: error.message };
     } finally {
-        checking.value = null;
+        creditsLoading.value = false;
     }
 }
 

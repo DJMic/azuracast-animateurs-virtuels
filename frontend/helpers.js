@@ -124,3 +124,13 @@ export function contextVariables(text) {
 export function formatTimestamp(seconds) {
     return seconds ? formatDateTime(new Date(seconds * 1000).toISOString()) : "";
 }
+
+export function formatNumber(value) {
+    return Number(value || 0).toLocaleString("fr-BE");
+}
+
+export function formatDay(seconds) {
+    return seconds
+        ? new Date(seconds * 1000).toLocaleDateString("fr-BE", { day: "numeric", month: "long" })
+        : "";
+}

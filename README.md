@@ -26,6 +26,8 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 - **Plusieurs prompts par animateur.** À chaque intervention, l'un d'eux est tiré au hasard. Un prompt peut être réservé aux enchaînements ou aux heures fixes.
 - **Variables** utilisables dans les textes : `{animateur}`, `{station}`, `{heure}`, `{jour}`, `{date}`, `{moment}`, `{titre_precedent}`, `{artiste_precedent}`, `{titre_suivant}`, `{artiste_suivant}`, `{duree}`, `{mots}`, `{langue}`.
 - **Écriture radio** (depuis la version 1.2.0) : DeepSeek reçoit des règles d'écriture pour l'oreille (style oral, idées reliées pour garder l'élan de la voix, exclamations et questions). Ces règles s'adaptent au modèle de voix : une ou deux indications de jeu comme `[warmly]` ou `[chuckles]` avec Eleven v4 et v3, une ou deux pauses `<break time="0.5s" />` avec les autres modèles. Option activée par défaut, dans « Consignes générales ».
+- **Jusqu'à 5 comptes ElevenLabs par station** (depuis la version 1.3.0). Chaque animateur utilise les voix et les crédits de son compte.
+- **Suivi des crédits ElevenLabs** de chaque compte : crédits utilisés et restants, date de remise à zéro, estimation de la date d'épuisement au rythme actuel, alerte sous un seuil. Un compte épuisé n'est plus sollicité : ses animateurs puisent dans la bibliothèque si elle est activée. Cette fonction nécessite la permission « User : lecture » sur la clé.
 - **Eleven v4**, le modèle ElevenLabs le plus naturel et expressif, est proposé et recommandé.
 - **Anti-répétition.** DeepSeek reçoit les dernières interventions de l'animateur pour varier ses formulations.
 - **Bibliothèque de clips réutilisables** (depuis la version 1.1.0) : les voix obtenues avec des prompts « intemporels » sont gardées et rediffusées sur un nouveau fond musical, sans appel aux API. Voir « Bibliothèque » plus bas.
@@ -49,7 +51,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 - L'**AutoDJ** activé sur les stations concernées : le plugin s'insère dans sa file d'attente.
 - `git` sur le serveur, et un accès `root` ou `sudo`.
 - Un compte **DeepSeek** avec du crédit, et une clé API (https://platform.deepseek.com, rubrique « API keys »).
-- Un compte **ElevenLabs**, une clé API et le **Voice ID** de chaque voix. La clé doit avoir au minimum les permissions **Text to Speech** et **Voices (lecture)**. La permission **User (lecture)** est facultative : elle permet d'afficher le quota restant.
+- Un ou plusieurs comptes **ElevenLabs** (5 au maximum par station), avec une clé API par compte et le **Voice ID** de chaque voix. Chaque clé doit avoir au minimum les permissions **Text to Speech** et **Voices (lecture)**. La permission **User (lecture)** permet d'afficher les crédits restants. Attention : les comptes gratuits ne peuvent servir qu'à un usage non commercial, selon les conditions d'ElevenLabs.
 
 Le serveur n'a pas besoin de Node.js : l'interface est compilée dans un conteneur Docker temporaire.
 
@@ -103,7 +105,7 @@ Le script retire seulement les lignes de ce plugin de `docker-compose.override.y
 
 Ouvrez une station, puis **Animateurs virtuels**. Il faut l'autorisation « Gérer les médias » de la station.
 
-1. **Services IA** : collez la clé DeepSeek et la clé ElevenLabs, puis cliquez sur **Vérifier**. Réglez si besoin la limite quotidienne.
+1. **Services IA** : collez la clé DeepSeek, puis ajoutez un ou plusieurs comptes ElevenLabs (5 au maximum), chacun avec un nom et sa clé API. Cliquez sur **Vérifier** pour chaque clé. Réglez si besoin la limite quotidienne.
 2. **Fond musical et son** : choisissez la playlist des fonds musicaux. Créez-la d'abord dans AzuraCast :
    - type **« Avancée »**, pour que l'AutoDJ ne la diffuse pas seule ;
    - **activée** ;

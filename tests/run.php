@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 // Standalone tests for the logic that does not need AzuraCast: php tests/run.php
 
-foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library'] as $class) {
+foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits'] as $class) {
     require __DIR__ . '/../src/Service/' . $class . '.php';
 }
 
+use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Library;
@@ -48,7 +49,7 @@ $host['voice_id'] = '21m00Tcm4TlvDq8ikWAM';
 $input = Settings::defaults();
 $input['hosts'] = [$host];
 $input['deepseek']['api_key'] = 'sk-deepseek-1234';
-$input['elevenlabs']['api_key'] = 'sk_eleven_9876';
+$input['elevenlabs']['accounts'] = [['id' => '', 'name' => 'Compte A', 'api_key' => 'sk_eleven_9876']];
 $input['enabled'] = true;
 
 $saved = Settings::fromInput($input, []);
@@ -56,17 +57,68 @@ check('ids attribués', strlen($saved['hosts'][0]['id']) === 12 && strlen($saved
 check('clé conservée', $saved['deepseek']['api_key'], 'sk-deepseek-1234');
 $display = Settings::forDisplay($saved);
 check('clé masquée', $display['deepseek']['api_key'], Settings::MASK);
-check('indice de clé', $display['elevenlabs']['api_key_hint'], '…9876');
+check('indice de clé', $display['elevenlabs']['accounts'][0]['api_key_hint'], '…9876');
+check('clé de compte masquée', $display['elevenlabs']['accounts'][0]['api_key'], Settings::MASK);
 $again = Settings::fromInput($display, $saved);
-check('masque = clé inchangée', $again['elevenlabs']['api_key'], 'sk_eleven_9876');
+check('masque = clé inchangée', $again['elevenlabs']['accounts'][0]['api_key'], 'sk_eleven_9876');
+check('animateur rattaché au premier compte', $saved['hosts'][0]['account_id'], $saved['elevenlabs']['accounts'][0]['id']);
 check('ids stables', $again['hosts'][0]['id'], $saved['hosts'][0]['id']);
 $cleared = $display;
 $cleared['enabled'] = false;
 $cleared['deepseek']['api_key_clear'] = true;
 check('suppression de clé', Settings::fromInput($cleared, $saved)['deepseek']['api_key'], '');
 $noKey = $input;
-$noKey['elevenlabs']['api_key'] = '';
-throws('activation sans clé refusée', static fn() => Settings::fromInput($noKey, []), 'clé API');
+$noKey['elevenlabs']['accounts'] = [];
+throws('activation sans compte refusée', static fn() => Settings::fromInput($noKey, []), 'compte ElevenLabs');
+$noKey['enabled'] = false;
+$noKey['elevenlabs']['accounts'] = [['name' => 'Vide', 'api_key' => '']];
+throws('compte sans clé refusé', static fn() => Settings::fromInput($noKey, []), '« Vide »');
+
+// --- ElevenLabs accounts --------------------------------------------------------------------------
+$legacy = Settings::withDefaults(['elevenlabs' => ['api_key' => 'sk_old_1111', 'model_id' => 'eleven_multilingual_v2'], 'hosts' => [$host]]);
+check('migration : ancienne clé = Compte 1', [$legacy['elevenlabs']['accounts'][0]['name'], $legacy['elevenlabs']['accounts'][0]['api_key']], ['Compte 1', 'sk_old_1111']);
+check('migration : plus de clé unique', isset($legacy['elevenlabs']['api_key']), false);
+check('migration : l\'animateur utilise Compte 1', Settings::account($legacy, $legacy['hosts'][0])['api_key'], 'sk_old_1111');
+$legacyDisplay = Settings::forDisplay($legacy);
+$legacySaved = Settings::fromInput($legacyDisplay, $legacy);
+check('migration : clé gardée au premier enregistrement', $legacySaved['elevenlabs']['accounts'][0]['api_key'], 'sk_old_1111');
+$multi = $input;
+$multi['elevenlabs']['accounts'] = [
+    ['id' => 'acc1acc1', 'name' => 'Compte A', 'api_key' => 'sk_a'],
+    ['id' => 'acc2acc2', 'name' => 'Compte B', 'api_key' => 'sk_b'],
+];
+$multi['hosts'][0]['account_id'] = 'acc2acc2';
+$multiSaved = Settings::fromInput($multi, []);
+check('animateur sur le compte B', Settings::voiceConfig($multiSaved, $multiSaved['hosts'][0])['api_key'], 'sk_b');
+$gone = Settings::forDisplay($multiSaved);
+array_pop($gone['elevenlabs']['accounts']);
+throws('compte supprimé encore utilisé', static fn() => Settings::fromInput($gone, $multiSaved), 'n\'existe plus');
+$six = $input;
+$six['elevenlabs']['accounts'] = array_map(static fn(int $i): array => ['name' => 'C' . $i, 'api_key' => 'k' . $i], range(1, 6));
+throws('6 comptes refusés', static fn() => Settings::fromInput($six, []), 'Au maximum 5');
+$dup = $input;
+$dup['elevenlabs']['accounts'] = [['name' => 'X', 'api_key' => 'a'], ['name' => 'x', 'api_key' => 'b']];
+throws('noms de comptes en double', static fn() => Settings::fromInput($dup, []), 'Deux comptes');
+$reordered = Settings::forDisplay($multiSaved);
+$reordered['elevenlabs']['accounts'] = array_reverse($reordered['elevenlabs']['accounts']);
+check('clés retrouvées par compte, pas par position', array_column(Settings::fromInput($reordered, $multiSaved)['elevenlabs']['accounts'], 'api_key'), ['sk_b', 'sk_a']);
+
+// --- Credits ----------------------------------------------------------------------------------------
+check('lecture des crédits', ElevenLabs::parseSubscription(['tier' => 'free', 'character_count' => 4230, 'character_limit' => 10000, 'next_character_count_reset_unix' => 1764547200]), ['used' => 4230, 'limit' => 10000, 'reset' => 1764547200, 'tier' => 'free']);
+$reset = (new DateTimeImmutable('2026-12-01 00:00:00 UTC'))->getTimestamp();
+$now = (new DateTimeImmutable('2026-11-16 00:00:00 UTC'))->getTimestamp(); // 15 days into a 30-day period
+$acc = ['id' => 'acc1acc1', 'name' => 'Compte A'];
+$row = Credits::describe($acc, ['used' => 6000, 'limit' => 10000, 'reset' => $reset, 'checked_at' => $now, 'error' => ''], 500, $now);
+check('crédits restants', $row['remaining'], 4000);
+check('épuisement estimé avant la remise à zéro', $row['empty_at'] !== null && $row['empty_at'] > $now && $row['empty_at'] < $reset, true);
+check('épuisement : environ 10 jours', round(($row['empty_at'] - $now) / 86400), 10.0);
+$row = Credits::describe($acc, ['used' => 3000, 'limit' => 10000, 'reset' => $reset, 'checked_at' => $now, 'error' => ''], 500, $now);
+check('pas d\'épuisement si le rythme tient', $row['empty_at'], null);
+$row = Credits::describe($acc, ['used' => 9700, 'limit' => 10000, 'reset' => $reset, 'checked_at' => $now, 'error' => ''], 500, $now);
+check('seuil bas', [$row['low'], $row['exhausted']], [true, false]);
+$row = Credits::describe($acc, ['used' => 10000, 'limit' => 10000, 'reset' => $reset, 'checked_at' => $now, 'error' => ''], 500, $now);
+check('épuisé', [$row['low'], $row['exhausted'], $row['remaining']], [false, true, 0]);
+check('erreur de lecture affichée', Credits::describe($acc, ['error' => 'permission manquante', 'checked_at' => $now], 500, $now)['error'], 'permission manquante');
 $bad = $input;
 $bad['hosts'][0]['slots'][0]['times'] = ['12:00'];
 throws('heure fixe hors tranche', static fn() => Settings::fromInput($bad, []), 'en dehors');

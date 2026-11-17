@@ -1,5 +1,18 @@
 # Changements
 
+## 1.3.0 – 2026-11-17
+
+- **Jusqu'à 5 comptes ElevenLabs par station**, chacun avec un nom et sa clé API.
+  - Chaque animateur choisit son compte dans sa fiche, à côté du Voice ID. La voix doit appartenir à ce compte, et la vérification se fait avec sa clé.
+  - À la mise à jour, la clé existante devient automatiquement « Compte 1 », et tous les animateurs y restent rattachés.
+  - Un compte utilisé par un animateur ne peut pas être retiré.
+- **Suivi des crédits ElevenLabs.** Le plugin lit les crédits de chaque compte par l'API ElevenLabs, ce qui ne consomme aucun crédit, toutes les 10 minutes et après chaque intervention générée.
+  - Pour chaque compte, dans « Services IA » : barre de progression, crédits utilisés et restants, date de remise à zéro, offre.
+  - Estimation de la date d'épuisement au rythme actuel, quand elle tombe avant la remise à zéro.
+  - Résumé dans l'en-tête de la page, avec un seuil d'alerte réglable (500 crédits par défaut).
+  - Un compte épuisé (ou dont les crédits restants ne suffisent pas pour le texte) n'est plus appelé : l'intervention passe par la bibliothèque si le secours est activé, sinon elle est annulée proprement.
+- L'historique indique le compte ElevenLabs utilisé pour chaque intervention.
+
 ## 1.2.0 – 2026-11-16
 
 - **Eleven v4** ajouté à la liste des modèles de voix et recommandé. C'est le modèle par défaut des nouvelles stations. Sur une station existante, choisissez-le dans « Services IA ».

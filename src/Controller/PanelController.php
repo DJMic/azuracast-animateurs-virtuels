@@ -16,6 +16,7 @@ use App\Radio\Backend\Liquidsoap\ConfigWriter;
 use App\Radio\Enums\LiquidsoapQueues;
 use DateTimeImmutable;
 use InvalidArgumentException;
+use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\DeepSeek;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
@@ -41,6 +42,7 @@ final class PanelController
         private readonly Generator $generator,
         private readonly DeepSeek $deepSeek,
         private readonly ElevenLabs $elevenLabs,
+        private readonly Credits $credits,
         private readonly Adapters $adapters,
         private readonly ReloadableEntityManagerInterface $em
     ) {
@@ -194,8 +196,8 @@ final class PanelController
             $settings = $this->store->read($station);
             $host = Settings::findHost($settings, (string)($body['host_id'] ?? ''))
                 ?? throw new InvalidArgumentException('Animateur introuvable : enregistrez d\'abord vos réglages.');
-            if ($settings['deepseek']['api_key'] === '' || $settings['elevenlabs']['api_key'] === '') {
-                throw new InvalidArgumentException('Renseignez et enregistrez d\'abord les clés API DeepSeek et ElevenLabs.');
+            if ($settings['deepseek']['api_key'] === '' || Settings::account($settings, $host) === null) {
+                throw new InvalidArgumentException('Renseignez et enregistrez d\'abord la clé DeepSeek et un compte ElevenLabs.');
             }
             if ($host['voice_id'] === '') {
                 throw new InvalidArgumentException('Renseignez le Voice ID de « ' . $host['name'] . ' ».');
@@ -291,26 +293,51 @@ final class PanelController
         });
     }
 
+    /**
+     * Checks an ElevenLabs account: its credits and, if a Voice ID is given, that the voice exists.
+     */
     public function checkElevenLabsAction(ServerRequest $request, Response $response, array $params): ResponseInterface
     {
         return $this->guard($response, function () use ($request, $response): ResponseInterface {
             $this->verifyCsrf($request);
-            $key = $this->key($request, 'elevenlabs');
-            $voiceId = trim((string)($this->body($request)['voice_id'] ?? ''));
-            if ($voiceId === '') {
-                throw new InvalidArgumentException('Indiquez un Voice ID.');
+            $body = $this->body($request);
+            $settings = $this->store->read($request->getStation());
+            $key = $this->accountKey($settings, $body);
+            $voiceId = trim((string)($body['voice_id'] ?? ''));
+
+            $parts = [];
+            $voice = null;
+            if ($voiceId !== '') {
+                $voice = $this->elevenLabs->voice($key, $voiceId);
+                $parts[] = 'Voix trouvée : « ' . $voice['name'] . ' ».';
             }
-            $voice = $this->elevenLabs->voice($key, $voiceId);
-            $quota = $this->elevenLabs->quota($key);
+            try {
+                $sub = $this->elevenLabs->subscription($key);
+                $parts[] = ($voiceId === '' ? 'Clé valide. ' : '') . 'Crédits : '
+                    . number_format($sub['used'], 0, ',', ' ') . ' utilisés sur ' . number_format($sub['limit'], 0, ',', ' ')
+                    . ', reste ' . number_format(max(0, $sub['limit'] - $sub['used']), 0, ',', ' ') . '.';
+            } catch (Throwable $e) {
+                if ($voiceId === '') {
+                    throw new InvalidArgumentException('ElevenLabs : ' . $e->getMessage());
+                }
+                $parts[] = 'Crédits illisibles : ' . $e->getMessage() . '.';
+            }
+
+            return $this->json($response, ['success' => true, 'message' => implode(' ', $parts), 'voice' => $voice]);
+        });
+    }
+
+    /** Credits of the ElevenLabs accounts of the station (?refresh=1 to read them again now). */
+    public function creditsAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $station = $request->getStation();
+            $force = ($request->getQueryParams()['refresh'] ?? '') === '1';
 
             return $this->json($response, [
-                'success' => true,
-                'message' => 'Voix trouvée : « ' . $voice['name'] . ' »'
-                    . ($quota !== null
-                        ? '. Caractères utilisés ce mois-ci : ' . number_format($quota['used'], 0, ',', ' ')
-                            . ' sur ' . number_format($quota['limit'], 0, ',', ' ') . '.'
-                        : '.'),
-                'voice' => $voice,
+                'credits' => $this->jobs->isWritable()
+                    ? $this->credits->all((int)$station->id, $this->store->read($station), $force)
+                    : [],
             ]);
         });
     }
@@ -457,6 +484,7 @@ final class PanelController
             'ready' => Settings::isReady($settings),
             'today' => $writable ? $this->jobs->countToday((int)$station->id, $now) : 0,
             'today_reused' => $writable ? $this->jobs->todayStats((int)$station->id, $now)['reused'] : 0,
+            'credits' => $writable ? $this->credits->all((int)$station->id, $settings) : [],
             'on_air' => $onAir !== null ? [
                 'host' => $onAir['host']['name'],
                 'start' => $onAir['slot']['start'],
@@ -532,6 +560,22 @@ final class PanelController
         if ($playlist->source !== PlaylistSources::Songs) {
             throw new InvalidArgumentException('La playlist « ' . $playlist->name . ' » ne contient pas de fichiers.');
         }
+    }
+
+    /** ElevenLabs key typed in the form, or the saved key of the account if the field shows the mask. */
+    private function accountKey(array $settings, array $body): string
+    {
+        $typed = trim((string)($body['api_key'] ?? ''));
+        if ($typed !== '' && $typed !== Settings::MASK) {
+            return $typed;
+        }
+        $account = Settings::findAccount($settings, (string)($body['account_id'] ?? ''))
+            ?? ($settings['elevenlabs']['accounts'][0] ?? null);
+        if ($account === null || $account['api_key'] === '') {
+            throw new InvalidArgumentException('Saisissez d\'abord la clé API du compte ElevenLabs (et enregistrez).');
+        }
+
+        return (string)$account['api_key'];
     }
 
     /** API key typed in the form, or the saved one if the field still shows the mask. */

@@ -114,30 +114,43 @@ final class ElevenLabs
     }
 
     /**
-     * Remaining characters of the subscription (needs the "user_read" permission on the key).
+     * Credits of the account: used, monthly limit, next reset (needs the "User: read" permission).
      *
-     * @return array{used: int, limit: int}|null
+     * @return array{used: int, limit: int, reset: ?int, tier: string}
      */
-    public function quota(string $apiKey): ?array
+    public function subscription(string $apiKey): array
     {
-        try {
-            $response = Http::request(
-                'GET',
-                self::BASE_URL . '/user/subscription',
-                ['xi-api-key' => $apiKey, 'Accept' => 'application/json'],
-                null,
-                20
-            );
-        } catch (RuntimeException) {
-            return null;
-        }
+        $response = Http::request(
+            'GET',
+            self::BASE_URL . '/user/subscription',
+            ['xi-api-key' => $apiKey, 'Accept' => 'application/json'],
+            null,
+            20
+        );
         if ($response['status'] !== 200) {
-            return null;
+            $message = Http::errorMessage($response['body'], $response['status']);
+            if (in_array($response['status'], [401, 403], true) && stripos($response['body'], 'permission') !== false) {
+                $message = 'la clé n\'a pas la permission « User : lecture » (Read) : crédits illisibles';
+            }
+            throw new RuntimeException($message);
         }
-        $data = json_decode($response['body'], true);
 
-        return is_array($data) && isset($data['character_limit'])
-            ? ['used' => (int)($data['character_count'] ?? 0), 'limit' => (int)$data['character_limit']]
-            : null;
+        return self::parseSubscription(json_decode($response['body'], true));
+    }
+
+    /** Pure function, tested. */
+    public static function parseSubscription(mixed $data): array
+    {
+        if (!is_array($data) || !isset($data['character_limit'])) {
+            throw new RuntimeException('réponse inattendue d\'ElevenLabs');
+        }
+        $reset = $data['next_character_count_reset_unix'] ?? null;
+
+        return [
+            'used' => (int)($data['character_count'] ?? 0),
+            'limit' => (int)$data['character_limit'],
+            'reset' => is_numeric($reset) && (int)$reset > 0 ? (int)$reset : null,
+            'tier' => (string)($data['tier'] ?? ''),
+        ];
     }
 }

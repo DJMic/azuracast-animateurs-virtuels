@@ -30,6 +30,7 @@ final class Generator
         private readonly Library $library,
         private readonly DeepSeek $deepSeek,
         private readonly ElevenLabs $elevenLabs,
+        private readonly Credits $credits,
         private readonly Mixer $mixer,
         private readonly StationFilesystems $filesystems,
         private readonly ReloadableEntityManagerInterface $em,
@@ -149,8 +150,15 @@ final class Generator
     private function fresh(Station $station, array $settings, array $host, array $job, string $signature, array $config): array
     {
         $stationId = (int)$station->id;
-        if ($settings['deepseek']['api_key'] === '' || $settings['elevenlabs']['api_key'] === '') {
-            throw new RuntimeException('Clé API DeepSeek ou ElevenLabs manquante.');
+        $account = Settings::account($settings, $host);
+        if ($settings['deepseek']['api_key'] === '' || $account === null || $account['api_key'] === '') {
+            throw new RuntimeException('Clé API DeepSeek ou compte ElevenLabs manquant.');
+        }
+        $job['account_id'] = $account['id'];
+        $job['account_name'] = $account['name'];
+        $remaining = $this->credits->remaining($stationId, $account['id']);
+        if ($remaining === 0) {
+            throw new RuntimeException('Crédits ElevenLabs épuisés sur le compte « ' . $account['name'] . ' ».');
         }
         $prompt = Planner::pickPrompt($host, (string)$job['kind'], (string)$job['prompt_id'])
             ?? throw new RuntimeException('Aucun prompt actif pour « ' . $host['name'] . ' ».');
@@ -180,13 +188,23 @@ final class Generator
         // 2. Voice
         $voicePath = $this->jobs->dir($stationId, 'tmp') . '/' . $job['id'] . '-voice.mp3';
         try {
-            $job['characters'] = $this->elevenLabs->speak(
-                $settings['elevenlabs'],
-                $host['voice_id'],
-                $host['voice'],
-                $text,
-                $voicePath
-            ) ?: mb_strlen($text);
+            if ($remaining !== null && $remaining < mb_strlen($text)) {
+                throw new RuntimeException(
+                    'Crédits ElevenLabs insuffisants sur le compte « ' . $account['name'] . ' » ('
+                    . $remaining . ' restants, ' . mb_strlen($text) . ' nécessaires).'
+                );
+            }
+            try {
+                $job['characters'] = $this->elevenLabs->speak(
+                    Settings::voiceConfig($settings, $host),
+                    $host['voice_id'],
+                    $host['voice'],
+                    $text,
+                    $voicePath
+                ) ?: mb_strlen($text);
+            } finally {
+                $this->credits->refresh($stationId, $account);
+            }
             $job['voice_duration'] = round($this->mixer->duration($voicePath), 2);
 
             // 3. Timeless text: the voice joins the library (whatever the reuse setting).
