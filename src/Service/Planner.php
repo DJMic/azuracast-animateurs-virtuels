@@ -74,17 +74,31 @@ final class Planner
     }
 
     /**
-     * Called each time AzuraCast adds a song to the queue during a slot.
+     * Called each time AzuraCast adds an item (song or jingle) to the queue during a slot.
+     * The intervention, if any, is placed just before that next item.
+     *
+     * "Every N songs": the host speaks right after the Nth song (jingles are not counted), so
+     * with music / jingle / music… the intervention comes between the song and the jingle.
+     * Fixed time: before the first item that starts at or after that time.
      *
      * @param array $state  scheduling state of the station (see return)
      * @param array $onAir  result of onAir() for the expected play time
      * @param DateTimeImmutable $playAt expected start of the next item (station time)
-     * @param bool $isMusic the next item is a song (not a jingle)
+     * @param bool $nextIsMusic the next item is a song (not a jingle)
+     * @param bool $prevIsMusic the item just before is a song (not a jingle nor an intervention)
+     * @param bool $canPlace false if a clip could not be ready in time here: nothing is decided,
+     *                       a due intervention waits for the next item
      *
      * @return array{0: ?array{kind: string, time: ?string}, 1: array} decision and new state
      */
-    public static function decide(array $state, array $onAir, DateTimeImmutable $playAt, bool $isMusic): array
-    {
+    public static function decide(
+        array $state,
+        array $onAir,
+        DateTimeImmutable $playAt,
+        bool $nextIsMusic,
+        bool $prevIsMusic = true,
+        bool $canPlace = true
+    ): array {
         $slot = $onAir['slot'];
         $start = $onAir['start'];
         $slotKey = $onAir['host']['id'] . '|' . $slot['id'] . '|' . $start->format('Y-m-d H:i');
@@ -104,7 +118,7 @@ final class Planner
             }
             $at = $start->add(new DateInterval('PT' . self::minutesFromStart($time, $slot['start']) . 'M'));
             $late = $playAt->getTimestamp() - $at->getTimestamp();
-            if ($late >= 0 && $late <= self::FIXED_GRACE_SECONDS) {
+            if ($late >= 0 && $late <= self::FIXED_GRACE_SECONDS && $canPlace) {
                 $decision = ['kind' => 'fixed', 'time' => $time];
                 $done[$key] = $playAt->getTimestamp();
                 break;
@@ -112,13 +126,13 @@ final class Planner
         }
 
         $everyN = (int)($slot['every_n'] ?? 0);
-        if ($decision === null && $everyN > 0 && $isMusic && $state['count'] >= $everyN) {
+        if ($decision === null && $canPlace && $everyN > 0 && $prevIsMusic && $state['count'] >= $everyN) {
             $decision = ['kind' => 'between', 'time' => null];
         }
 
         if ($decision !== null) {
-            $state['count'] = $isMusic ? 1 : 0;
-        } elseif ($isMusic) {
+            $state['count'] = $nextIsMusic ? 1 : 0;
+        } elseif ($nextIsMusic) {
             $state['count']++;
         }
 

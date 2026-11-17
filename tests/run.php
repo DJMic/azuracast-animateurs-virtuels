@@ -188,6 +188,37 @@ check('heure fixe : trop tard (> 15 min)', $late, null);
 [$nextDay] = Planner::decide($state, Planner::onAir($settings, $at('2026-11-17 07:02')), $at('2026-11-17 07:02'), true);
 check('heure fixe : le lendemain à nouveau', $nextDay['kind'] ?? null, 'fixed');
 
+// Music / jingle / music…: the intervention comes right after the Nth song, before the jingle.
+$every2 = $settings;
+$every2['hosts'][0]['slots'][0]['every_n'] = 2;
+$every2['hosts'][0]['slots'][0]['times'] = [];
+$state = [];
+$seq = [];
+$t = $at('2026-11-16 06:05');
+$prevMusic = false;
+foreach (['M', 'J', 'M', 'J', 'M', 'J', 'M', 'J', 'M'] as $item) {
+    $isMusicItem = $item === 'M';
+    [$d, $state] = Planner::decide($state, Planner::onAir($every2, $t), $t, $isMusicItem, $prevMusic);
+    if ($d !== null) {
+        $seq[] = 'V';
+    }
+    $seq[] = $item;
+    $prevMusic = $isMusicItem;
+    $t = $t->modify('+2 minutes');
+}
+check('intervention avant le jingle', implode('', $seq), 'MJMVJMJMVJM');
+[$d, $s2] = Planner::decide(['slot' => null], Planner::onAir($settings, $at('2026-11-16 07:01')), $at('2026-11-16 07:01'), true, true, false);
+[$d2] = Planner::decide($s2, Planner::onAir($settings, $at('2026-11-16 07:04')), $at('2026-11-16 07:04'), true, true, true);
+check('heure fixe reportée si pas le temps de générer', [$d, $d2['kind'] ?? null], [null, 'fixed']);
+$state = ['slot' => null];
+$t = $at('2026-11-16 06:05');
+foreach ([true, true, true, true] as $m) {
+    [, $state] = Planner::decide($state, Planner::onAir($settings, $t), $t, $m);
+}
+[$late1, $state] = Planner::decide($state, Planner::onAir($settings, $t), $t, true, true, false);
+[$late2] = Planner::decide($state, Planner::onAir($settings, $t), $t, true, true, true);
+check('entre deux morceaux reporté si pas le temps', [$late1, $late2['kind'] ?? null], [null, 'between']);
+
 $usageHost = ['prompts' => [
     ['id' => 'a', 'name' => 'A', 'usage' => 'between', 'enabled' => true, 'text' => 'a'],
     ['id' => 'b', 'name' => 'B', 'usage' => 'fixed', 'enabled' => true, 'text' => 'b'],

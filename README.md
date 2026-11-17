@@ -49,6 +49,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 
 - AzuraCast installé avec **Docker**, dans `/var/azuracast` par défaut, en version récente.
 - L'**AutoDJ** activé sur les stations concernées : le plugin s'insère dans sa file d'attente.
+- Une **file d'attente AutoDJ d'au moins 5 éléments** (Profil › Modifier le profil › onglet AutoDJ, « AutoDJ Queue Length »). Chaque intervention doit être générée avant que Liquidsoap ne la demande. Avec une file trop courte, surtout entre des jingles de quelques secondes, il n'y a pas le temps : le plugin reporte alors l'intervention et l'interface le signale.
 - `git` sur le serveur, et un accès `root` ou `sudo`.
 - Un compte **DeepSeek** avec du crédit, et une clé API (https://platform.deepseek.com, rubrique « API keys »).
 - Un ou plusieurs comptes **ElevenLabs** (5 au maximum par station), avec une clé API par compte et le **Voice ID** de chaque voix. Chaque clé doit avoir au minimum les permissions **Text to Speech** et **Voices (lecture)**. La permission **User (lecture)** permet d'afficher les crédits restants. Attention : les comptes gratuits ne peuvent servir qu'à un usage non commercial, selon les conditions d'ElevenLabs.
@@ -124,10 +125,11 @@ Les interventions apparaissent dans la **file d'attente** d'AzuraCast (Diffusion
 ## Fonctionnement détaillé
 
 - **Quand l'animateur parle-t-il ?** Quand AzuraCast ajoute un morceau à sa file d'attente, le plugin regarde quel animateur est programmé à l'heure prévue de diffusion. Si une intervention est due, il la place juste avant ce morceau.
-  - « Toutes les N chansons » : l'animateur parle après N morceaux, jingles exclus.
+  - « Toutes les N chansons » : l'animateur parle juste après le Nᵉ morceau, jingles exclus. Avec une programmation musique / jingle / musique…, il parle donc entre le morceau et le jingle.
+  - `{titre_precedent}` et `{titre_suivant}` désignent toujours des morceaux, jamais des jingles. Si le morceau suivant n'est pas encore choisi au moment de la génération, il n'est pas annoncé.
   - Heure fixe : l'animateur parle avant le premier morceau qui démarre à cette heure ou après. Si la file n'atteint cette heure qu'avec plus de 15 minutes de retard, l'intervention est abandonnée.
   - Si deux tranches se chevauchent, c'est l'animateur placé le plus haut dans la liste qui parle. L'interface le signale.
-- **Préparation à l'avance.** AzuraCast prépare sa file plusieurs morceaux à l'avance (3 par défaut). Le clip est généré tout de suite, en arrière-plan, pendant ces quelques minutes. Si le lancement immédiat échoue, la tâche de synchronisation d'AzuraCast le génère dans la minute.
+- **Préparation à l'avance.** AzuraCast prépare sa file plusieurs éléments à l'avance (réglage « AutoDJ Queue Length », 5 ou plus recommandé). Le clip est généré tout de suite, en arrière-plan, pendant ces quelques minutes. Si le lancement immédiat échoue, la tâche de synchronisation d'AzuraCast le génère dans la minute.
 - **En cas de problème** (service indisponible, crédit épuisé…), l'intervention est retirée de la file : la musique continue normalement. Si un clip n'est pas prêt au moment de la diffusion, une demi-seconde de silence est diffusée à la place. L'erreur est visible dans l'historique.
 - **Fondu enchaîné.** Le fondu enchaîné d'AzuraCast s'applique aussi aux interventions. Avec la musique seule avant et après la voix (3 s par défaut), la voix n'est jamais coupée.
 

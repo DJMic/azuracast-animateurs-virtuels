@@ -31,11 +31,13 @@ final class Launcher
         }
         $php = is_executable(PHP_BINDIR . '/php') ? PHP_BINDIR . '/php' : (Shell::which('php') ?? 'php');
 
+        // Same as AzuraCast's azuracast_cli: run from the application folder.
         $command = sprintf(
-            'sleep %d; exec %s %s %s %d %s',
+            'sleep %d; cd %s && exec %s %s %s %d %s',
             max(0, $delaySeconds),
+            escapeshellarg($console['cwd']),
             escapeshellarg($php),
-            escapeshellarg($console),
+            escapeshellarg($console['script']),
             escapeshellarg(GenerateCommand::NAME),
             $stationId,
             escapeshellarg($jobId)
@@ -53,13 +55,19 @@ final class Launcher
         }
     }
 
-    private static function console(): ?string
+    /**
+     * AzuraCast's console: backend/bin/console in recent versions, bin/console before.
+     *
+     * @return array{cwd: string, script: string}|null
+     */
+    private static function console(): ?array
     {
-        // <AzuraCast>/plugins/<this plugin>/src/Service → <AzuraCast>/bin/console
-        $candidates = [dirname(Plugin::dir(), 2) . '/bin/console', '/var/azuracast/www/bin/console'];
-        foreach ($candidates as $candidate) {
-            if (is_file($candidate)) {
-                return $candidate;
+        // <AzuraCast>/plugins/<this plugin> → <AzuraCast>
+        foreach (array_unique([dirname(Plugin::dir(), 2), '/var/azuracast/www']) as $root) {
+            foreach (['backend/bin/console', 'bin/console'] as $script) {
+                if (is_file($root . '/' . $script)) {
+                    return ['cwd' => $root, 'script' => $script];
+                }
             }
         }
 

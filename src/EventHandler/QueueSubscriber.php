@@ -11,6 +11,7 @@ use App\Entity\StationQueue;
 use App\Event\Radio\AnnotateNextSong;
 use App\Event\Radio\BuildQueue;
 use DateTimeImmutable;
+use DateTimeInterface;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
 use Plugin\AzuracastAnimateursVirtuels\Service\Library;
@@ -42,8 +43,14 @@ final class QueueSubscriber implements EventSubscriberInterface
     /** Extra seconds counted in the queue for a clip not generated yet (intro + outro are added). */
     private const int ESTIMATE_MARGIN = 2;
 
-    /** How long Liquidsoap's request may wait for a clip still being generated. */
-    private const int WAIT_FOR_CLIP = 6;
+    /** How long Liquidsoap's request may wait for a clip still being generated (its HTTP timeout is 10 s). */
+    private const int WAIT_FOR_CLIP = 8;
+
+    /**
+     * Minimum time between the decision and the moment Liquidsoap asks for the clip, to have time
+     * to generate it. Below that, the intervention waits for a later place in the queue.
+     */
+    public const int MIN_LEAD = 45;
 
     private static bool $nested = false;
 
@@ -132,12 +139,22 @@ final class QueueSubscriber implements EventSubscriberInterface
         $stationId = (int)$station->id;
         $isMusic = $next->media !== null && !($next->playlist?->is_jingle ?? false);
 
-        $decision = null;
-        $this->jobs->updateState($stationId, function (array $state) use ($onAir, $playAt, $isMusic, &$decision): array {
-            [$decision, $state] = Planner::decide($state, $onAir, $playAt, $isMusic);
+        // The clip goes right after the last item of the queue. Liquidsoap asks for it as soon as
+        // that item starts playing: the clip must be generated before then.
+        $previous = $this->lastRow($station);
+        $prevIsMusic = $previous !== null && $previous['is_music'];
+        $askAt = $previous['starts_at'] ?? time();
+        $canPlace = $askAt - time() >= self::MIN_LEAD;
 
-            return $state;
-        });
+        $decision = null;
+        $this->jobs->updateState(
+            $stationId,
+            function (array $state) use ($onAir, $playAt, $isMusic, $prevIsMusic, $canPlace, &$decision): array {
+                [$decision, $state] = Planner::decide($state, $onAir, $playAt, $isMusic, $prevIsMusic, $canPlace);
+
+                return $state;
+            }
+        );
         if ($decision === null) {
             return null;
         }
@@ -166,14 +183,16 @@ final class QueueSubscriber implements EventSubscriberInterface
             return null;
         }
 
-        $previous = $this->previousSong($station);
+        // Songs around the intervention, jingles skipped. If the next item is a jingle, the next
+        // song is not chosen yet: it is looked up in the queue when the clip is generated.
+        $previousSong = $prevIsMusic ? $previous : ($this->lastMusicRow($station) ?? []);
         $variables = PromptBuilder::variables(
             $host,
             $station->name,
             $settings['language'],
             $playAt,
-            $previous,
-            ['title' => $next->title, 'artist' => $next->artist]
+            ['title' => $previousSong['title'] ?? null, 'artist' => $previousSong['artist'] ?? null],
+            $isMusic ? ['title' => $next->title, 'artist' => $next->artist] : []
         );
 
         $job = $this->jobs->create($stationId, $now, [
@@ -187,6 +206,8 @@ final class QueueSubscriber implements EventSubscriberInterface
             'variables' => $variables,
             'queued' => true,
             'reuse_only' => $reuseOnly,
+            'resolve_next' => !$isMusic,
+            'ask_at' => (new DateTimeImmutable('@' . $askAt))->setTimezone($station->getTimezoneObject())->format(DATE_ATOM),
         ]);
 
         $title = str_replace(PromptBuilder::MISSING, '', PromptBuilder::fill($settings['output']['meta_title'], $variables));
@@ -205,18 +226,50 @@ final class QueueSubscriber implements EventSubscriberInterface
         return $row;
     }
 
-    /** @return array{title: ?string, artist: ?string} last song already in the queue */
-    private function previousSong(Station $station): array
+    /**
+     * Last item of the queue (the one the intervention would follow).
+     *
+     * @return array{title: ?string, artist: ?string, is_music: bool, starts_at: ?int}|null
+     */
+    private function lastRow(Station $station): ?array
+    {
+        $row = $this->em->createQuery(
+            <<<'DQL'
+                SELECT sq.title, sq.artist, sq.timestamp_played, sq.autodj_custom_uri,
+                    IDENTITY(sq.media) AS media_id, p.is_jingle
+                FROM App\Entity\StationQueue sq
+                LEFT JOIN sq.playlist p
+                WHERE sq.station = :station
+                ORDER BY sq.timestamp_cued DESC, sq.id DESC
+            DQL
+        )->setParameter('station', $station)->setMaxResults(1)->getOneOrNullResult();
+        if (!is_array($row)) {
+            return null;
+        }
+        $played = $row['timestamp_played'] ?? null;
+
+        return [
+            'title' => $row['title'],
+            'artist' => $row['artist'],
+            'is_music' => $row['media_id'] !== null && empty($row['is_jingle']) && $row['autodj_custom_uri'] === null,
+            'starts_at' => $played instanceof DateTimeInterface ? $played->getTimestamp() : (is_numeric($played) ? (int)$played : null),
+        ];
+    }
+
+    /** @return array{title: ?string, artist: ?string}|null last song (not jingle) of the queue */
+    private function lastMusicRow(Station $station): ?array
     {
         $row = $this->em->createQuery(
             <<<'DQL'
                 SELECT sq.title, sq.artist FROM App\Entity\StationQueue sq
-                WHERE sq.station = :station AND sq.autodj_custom_uri IS NULL
-                ORDER BY sq.timestamp_cued DESC
+                LEFT JOIN sq.playlist p
+                WHERE sq.station = :station AND sq.media IS NOT NULL AND sq.autodj_custom_uri IS NULL
+                    AND (p.id IS NULL OR p.is_jingle = 0)
+                ORDER BY sq.timestamp_cued DESC, sq.id DESC
             DQL
         )->setParameter('station', $station)->setMaxResults(1)->getOneOrNullResult();
 
-        return is_array($row) ? ['title' => $row['title'], 'artist' => $row['artist']] : [];
+        return is_array($row) ? ['title' => $row['title'], 'artist' => $row['artist']] : null;
     }
 
     public function onAnnotate(AnnotateNextSong $event): void
@@ -244,6 +297,9 @@ final class QueueSubscriber implements EventSubscriberInterface
             'title' => (string)$queue->title,
             'artist' => (string)$queue->artist,
             'sq_id' => $queue->id,
+            // The clip already has its own fades and level: AutoCue must not trim it (it took the
+            // quieter voice part for the end of the track and cut the clip after the intro).
+            'liq_disable_autocue' => 'true',
         ];
         if (!empty($settings['output']['hide_metadata'])) {
             $annotations['jingle_mode'] = 'true';

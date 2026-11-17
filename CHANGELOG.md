@@ -1,5 +1,15 @@
 # Changements
 
+## 1.3.1 – 2026-11-17
+
+- **Interventions parfois remplacées par un silence.** Deux causes, corrigées :
+  - la génération immédiate en arrière-plan ne démarrait jamais : le plugin cherchait la console AzuraCast à l'ancien emplacement (`bin/console` au lieu de `backend/bin/console`). Seule la tâche de synchronisation, une fois par minute, générait les clips, souvent trop tard ;
+  - avec une file d'attente AutoDJ courte et des jingles de quelques secondes, l'intervention était placée trop peu de temps avant sa diffusion. Le plugin vérifie maintenant qu'il reste au moins 45 secondes pour la générer, sinon il la reporte au moment suivant (une heure fixe reste valable 15 minutes). L'interface signale une file d'attente AutoDJ de moins de 4 éléments.
+- **Clip coupé après le début du fond musical.** L'AutoCue de Liquidsoap analysait le clip et prenait la partie voix, plus calme que l'intro musicale, pour sa fin : le morceau suivant démarrait trop tôt. L'AutoCue est désactivé pour les interventions, qui ont déjà leurs propres fondus et leur niveau.
+- **Place des interventions « entre deux morceaux ».** Elles arrivent juste après le Nᵉ morceau, donc avant le jingle avec une programmation musique / jingle / musique, comme les heures fixes.
+- **`{titre_precedent}`, `{titre_suivant}` et les artistes ignorent les jingles.** Quand l'intervention précède un jingle, le morceau qui suit ce jingle est cherché dans la file d'attente au moment de la génération.
+- Liquidsoap peut attendre un clip encore en cours de génération jusqu'à 8 secondes au lieu de 6.
+
 ## 1.3.0 – 2026-11-17
 
 - **Jusqu'à 5 comptes ElevenLabs par station**, chacun avec un nom et sa clé API.

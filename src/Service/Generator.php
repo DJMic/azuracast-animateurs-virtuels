@@ -70,6 +70,10 @@ final class Generator
                 }
             }
 
+            if ($onAir && !empty($job['resolve_next'])) {
+                $job = $this->resolveNextSong($station, $job, (int)$row['id']);
+            }
+
             $job['status'] = 'running';
             $job['attempts'] = (int)$job['attempts'] + 1;
             $job['started_at'] = (new DateTimeImmutable('now', $station->getTimezoneObject()))->format(DATE_ATOM);
@@ -350,6 +354,51 @@ final class Generator
         $job['error'] = $error;
         $job['finished_at'] = (new DateTimeImmutable())->format(DATE_ATOM);
         $this->jobs->save($stationId, $job);
+
+        return $job;
+    }
+
+    /**
+     * The intervention was placed before a jingle: the song after that jingle is found in the
+     * queue (waiting a little for AzuraCast to choose it, as long as there is time).
+     */
+    private function resolveNextSong(Station $station, array $job, int $rowId): array
+    {
+        $job['resolve_next'] = false;
+        $settings = $this->store->read($station);
+        $host = Settings::findHost($settings, (string)$job['host_id']);
+        $prompt = $host !== null ? Planner::pickPrompt($host, (string)$job['kind'], (string)$job['prompt_id']) : null;
+        $text = (string)($prompt['text'] ?? '') . (string)($host['personality'] ?? '');
+        if (!preg_match('/\{(titre|artiste)_suivant\}/i', $text)) {
+            return $job; // the prompt does not talk about the next song
+        }
+
+        $askAt = strtotime((string)($job['ask_at'] ?? '')) ?: time();
+        $deadline = min(time() + 120, $askAt - 35);
+        do {
+            $this->database->prepare();
+            $next = $this->em->createQuery(
+                <<<'DQL'
+                    SELECT sq.title, sq.artist FROM App\Entity\StationQueue sq
+                    LEFT JOIN sq.playlist p
+                    WHERE sq.station = :station AND sq.id > :id AND sq.media IS NOT NULL
+                        AND sq.autodj_custom_uri IS NULL AND (p.id IS NULL OR p.is_jingle = 0)
+                    ORDER BY sq.id ASC
+                DQL
+            )->setParameter('station', $station)->setParameter('id', $rowId)->setMaxResults(1)->getOneOrNullResult();
+            if (is_array($next)) {
+                $job['variables']['titre_suivant'] = trim((string)$next['title']);
+                $job['variables']['artiste_suivant'] = trim((string)$next['artist']);
+
+                return $job;
+            }
+            if (time() + 5 >= $deadline) {
+                break;
+            }
+            sleep(5);
+        } while (true);
+
+        $job['library_note'] = trim(($job['library_note'] ?? '') . ' Morceau suivant pas encore choisi par AzuraCast : non annoncé.');
 
         return $job;
     }

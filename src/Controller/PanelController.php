@@ -481,6 +481,7 @@ final class PanelController
             'data_dir' => $this->jobs->root(),
             'ffmpeg' => Shell::which('ffmpeg') !== null,
             'autodj' => $station->supportsAutoDjQueue(),
+            'queue_length' => max(2, (int)$station->backend_config->autodj_queue_length),
             'ready' => Settings::isReady($settings),
             'today' => $writable ? $this->jobs->countToday((int)$station->id, $now) : 0,
             'today_reused' => $writable ? $this->jobs->todayStats((int)$station->id, $now)['reused'] : 0,

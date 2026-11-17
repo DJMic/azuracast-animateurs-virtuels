@@ -1487,6 +1487,12 @@ const problems = computed(() => {
         list.push("L'AutoDJ de cette station est désactivé : les animateurs ne peuvent intervenir que si l'AutoDJ "
             + "construit la file d'attente.");
     }
+    if (status.value.queue_length && status.value.queue_length < 4) {
+        list.push(`La file d'attente AutoDJ de cette station ne prépare que ${status.value.queue_length} éléments à `
+            + "l'avance : il n'y a pas le temps de générer les interventions avant leur diffusion. Dans AzuraCast, "
+            + "ouvrez Profil › Modifier le profil › onglet AutoDJ et réglez la longueur de la file d'attente "
+            + "(« AutoDJ Queue Length ») sur 5 ou plus.");
+    }
     if (settings.value?.enabled && !settings.value.hosts.some((h) => h.enabled && h.slots.length)) {
         list.push("Activé, mais aucun animateur actif n'a de tranche horaire.");
     }
