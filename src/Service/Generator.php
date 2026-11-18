@@ -14,7 +14,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Produces one intervention: DeepSeek writes the text, ElevenLabs speaks it, ffmpeg adds the bed.
+ * Produces one intervention: DeepSeek writes the text, ElevenLabs or Voxtral speaks it, ffmpeg adds the bed.
  */
 final class Generator
 {
@@ -29,8 +29,7 @@ final class Generator
         private readonly Jobs $jobs,
         private readonly Library $library,
         private readonly DeepSeek $deepSeek,
-        private readonly ElevenLabs $elevenLabs,
-        private readonly Credits $credits,
+        private readonly Speech $speech,
         private readonly Mixer $mixer,
         private readonly StationFilesystems $filesystems,
         private readonly ReloadableEntityManagerInterface $em,
@@ -103,8 +102,8 @@ final class Generator
         $settings = $this->store->read($station);
         $host = Settings::findHost($settings, (string)$job['host_id'])
             ?? throw new RuntimeException('Animateur introuvable (supprimé ?).');
-        if ($host['voice_id'] === '') {
-            throw new RuntimeException('Voice ID manquant pour « ' . $host['name'] . ' ».');
+        if (!Settings::hasVoice($host)) {
+            throw new RuntimeException('Voix manquante pour « ' . $host['name'] . ' ».');
         }
         $job['host_name'] = $host['name'];
         $config = Library::config($host);
@@ -150,20 +149,20 @@ final class Generator
         }
     }
 
-    /** New text (DeepSeek) and new voice (ElevenLabs). Timeless results go to the library. */
+    /** New text (DeepSeek) and new voice (ElevenLabs or Voxtral). Timeless results go to the library. */
     private function fresh(Station $station, array $settings, array $host, array $job, string $signature, array $config): array
     {
         $stationId = (int)$station->id;
-        $account = Settings::account($settings, $host);
-        if ($settings['deepseek']['api_key'] === '' || $account === null || $account['api_key'] === '') {
-            throw new RuntimeException('Clé API DeepSeek ou compte ElevenLabs manquant.');
+        $speech = Settings::speech($settings, $host);
+        if ($settings['deepseek']['api_key'] === '' || $speech === null) {
+            throw new RuntimeException($host['provider'] === 'voxtral'
+                ? 'Clé API DeepSeek ou clé Mistral (Voxtral) manquante.'
+                : 'Clé API DeepSeek ou compte ElevenLabs manquant.');
         }
-        $job['account_id'] = $account['id'];
-        $job['account_name'] = $account['name'];
-        $remaining = $this->credits->remaining($stationId, $account['id']);
-        if ($remaining === 0) {
-            throw new RuntimeException('Crédits ElevenLabs épuisés sur le compte « ' . $account['name'] . ' ».');
-        }
+        $job['provider'] = $speech['provider'];
+        $job['account_id'] = $speech['account']['id'] ?? '';
+        $job['account_name'] = $speech['account']['name'] ?? 'Mistral Voxtral';
+        $this->speech->assertCredits($stationId, $speech);
         $prompt = Planner::pickPrompt($host, (string)$job['kind'], (string)$job['prompt_id'])
             ?? throw new RuntimeException('Aucun prompt actif pour « ' . $host['name'] . ' ».');
         $job['prompt_id'] = $prompt['id'];
@@ -181,7 +180,7 @@ final class Generator
         }
         $messages = PromptBuilder::messages($settings, $host, $prompt, $variables, $recent);
         $answer = $this->deepSeek->complete($settings['deepseek'], $messages);
-        $text = PromptBuilder::clean($answer['text'], (string)$settings['elevenlabs']['model_id']);
+        $text = PromptBuilder::clean($answer['text'], $speech['model']);
         if (mb_strlen($text) < 3) {
             throw new RuntimeException('Le texte renvoyé par DeepSeek est vide après nettoyage.');
         }
@@ -192,23 +191,8 @@ final class Generator
         // 2. Voice
         $voicePath = $this->jobs->dir($stationId, 'tmp') . '/' . $job['id'] . '-voice.mp3';
         try {
-            if ($remaining !== null && $remaining < mb_strlen($text)) {
-                throw new RuntimeException(
-                    'Crédits ElevenLabs insuffisants sur le compte « ' . $account['name'] . ' » ('
-                    . $remaining . ' restants, ' . mb_strlen($text) . ' nécessaires).'
-                );
-            }
-            try {
-                $job['characters'] = $this->elevenLabs->speak(
-                    Settings::voiceConfig($settings, $host),
-                    $host['voice_id'],
-                    $host['voice'],
-                    $text,
-                    $voicePath
-                ) ?: mb_strlen($text);
-            } finally {
-                $this->credits->refresh($stationId, $account);
-            }
+            $this->speech->assertCredits($stationId, $speech, mb_strlen($text));
+            $job['characters'] = $this->speech->speak($station, $speech, $text, $voicePath);
             $job['voice_duration'] = round($this->mixer->duration($voicePath), 2);
 
             // 3. Timeless text: the voice joins the library (whatever the reuse setting).

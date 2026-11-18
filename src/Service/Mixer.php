@@ -238,6 +238,51 @@ final class Mixer
         return implode(',', $chain);
     }
 
+    /**
+     * Extract of a file in mono 24 kHz WAV (reference recording for a cloned voice): leading
+     * silence removed, at most $seconds long.
+     */
+    public function extract(string $inPath, string $outPath, float $start, int $seconds): void
+    {
+        $result = Shell::run(self::extractArguments($this->ffmpeg(), $inPath, $outPath, $start, $seconds), 60);
+        if ($result['code'] !== 0 || !is_file($outPath) || filesize($outPath) < 1000) {
+            @unlink($outPath);
+            throw new RuntimeException('Extrait de la voix de référence impossible : ' . trim(mb_substr($result['err'], -400)));
+        }
+        if ($this->duration($outPath) < 2.0) {
+            @unlink($outPath);
+            throw new RuntimeException('La voix de référence est trop courte (2 secondes au minimum à partir du début choisi).');
+        }
+    }
+
+    /** @return string[] */
+    public static function extractArguments(string $ffmpeg, string $inPath, string $outPath, float $start, int $seconds): array
+    {
+        $args = [$ffmpeg, '-hide_banner', '-nostdin', '-y'];
+        if ($start > 0) {
+            array_push($args, '-ss', sprintf('%.1F', $start));
+        }
+        array_push(
+            $args,
+            '-i',
+            $inPath,
+            '-vn',
+            '-af',
+            'silenceremove=start_periods=1:start_threshold=-45dB,atrim=0:' . $seconds . ',loudnorm=I=-18:TP=-2',
+            '-ac',
+            '1',
+            '-ar',
+            '24000',
+            '-c:a',
+            'pcm_s16le',
+            '-f',
+            'wav',
+            $outPath
+        );
+
+        return $args;
+    }
+
     private function ffmpeg(): string
     {
         return Shell::which('ffmpeg') ?? throw new RuntimeException('ffmpeg est introuvable dans le conteneur AzuraCast.');

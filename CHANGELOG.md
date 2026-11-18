@@ -1,5 +1,17 @@
 # Changements
 
+## 1.5.0 – 2026-11-18
+
+- **Mistral Voxtral, un second service de voix.** Chaque animateur, et chaque chronique à voix propre, choisit maintenant entre ElevenLabs et Voxtral.
+  - **Clé Mistral** par station, dans « Services IA », avec un bouton « Vérifier ». Le plugin peut être activé avec Voxtral seul, sans compte ElevenLabs.
+  - **Voix Mistral** prêtes à l'emploi (les quatre voix françaises sont proposées) ou voix enregistrées dans Mistral AI Studio (bouton « Charger les voix »).
+  - **Voix clonée depuis un fichier des médias** : un extrait (début et durée réglables) est envoyé avec chaque demande, rien n'est stocké chez Mistral.
+  - **Expressivité** réglable et bouton **« Écouter un essai »** pour choisir une voix avant d'enregistrer.
+  - **Écriture radio** adaptée : balises `[emotion=…]` et `[pace=…]` comprises par Voxtral ; les indications de style ElevenLabs sont converties ou retirées.
+  - **Textes longs** (chroniques) lus en plusieurs parties, assemblées automatiquement.
+  - **Suivi** : caractères envoyés à Voxtral ce mois-ci et le mois précédent, avec une estimation haute du coût.
+- La bibliothèque distingue les voix des deux services : un animateur qui change de service ne rediffuse pas les clips de son ancienne voix.
+
 ## 1.4.1 – 2026-11-18
 
 - **Chroniques : fond musical et son propres à chaque chronique.**

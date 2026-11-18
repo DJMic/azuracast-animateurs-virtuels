@@ -12,7 +12,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Produces one chronicle: sources → DeepSeek → ElevenLabs → music bed (+ opening/closing jingles)
+ * Produces one chronicle: sources → DeepSeek → ElevenLabs or Voxtral → music bed (+ opening/closing jingles)
  * → media library → playlist (replacing the previous version) → cleanup of old versions.
  *
  * If no source can be read, or if DeepSeek finds nothing usable in them, nothing is published:
@@ -25,8 +25,7 @@ final class ChronicleGenerator
         private readonly Jobs $jobs,
         private readonly Sources $sources,
         private readonly DeepSeek $deepSeek,
-        private readonly ElevenLabs $elevenLabs,
-        private readonly Credits $credits,
+        private readonly Speech $speech,
         private readonly Generator $generator,
         private readonly Mixer $mixer,
         private readonly MediaLibrary $media,
@@ -98,16 +97,14 @@ final class ChronicleGenerator
             throw new RuntimeException('Cette chronique a été supprimée.');
         }
         $voice = ChronicleSettings::voice($settings, $chronicle)
-            ?? throw new RuntimeException('Voix de la chronique introuvable (animateur, compte ElevenLabs ou Voice ID).');
+            ?? throw new RuntimeException('Voix de la chronique introuvable (animateur, compte ElevenLabs, clé Mistral ou voix).');
         if ($settings['deepseek']['api_key'] === '') {
             throw new RuntimeException('Clé API DeepSeek manquante.');
         }
-        $job['account_id'] = $voice['account']['id'];
-        $job['account_name'] = $voice['account']['name'];
-        $remaining = $this->credits->remaining($stationId, $voice['account']['id']);
-        if ($remaining === 0) {
-            throw new RuntimeException('Crédits ElevenLabs épuisés sur le compte « ' . $voice['account']['name'] . ' ».');
-        }
+        $job['provider'] = $voice['provider'];
+        $job['account_id'] = $voice['account']['id'] ?? '';
+        $job['account_name'] = $voice['account']['name'] ?? 'Mistral Voxtral';
+        $this->speech->assertCredits($stationId, $voice);
 
         // 1. Sources
         $now = new DateTimeImmutable('now', $station->getTimezoneObject());
@@ -144,7 +141,7 @@ final class ChronicleGenerator
             throw new RuntimeException('Les sources ne contiennent aucune information utile pour cette chronique. '
                 . 'La version précédente reste en place.');
         }
-        $text = PromptBuilder::clean($answer['text'], (string)$settings['elevenlabs']['model_id'], 9000);
+        $text = PromptBuilder::clean($answer['text'], $voice['model'], 9000);
         if (mb_strlen($text) < 20) {
             throw new RuntimeException('Le texte renvoyé par DeepSeek est trop court.');
         }
@@ -153,28 +150,11 @@ final class ChronicleGenerator
         $this->jobs->save($stationId, $job);
 
         // 3. Voice
-        if ($remaining !== null && $remaining < mb_strlen($text)) {
-            throw new RuntimeException('Crédits ElevenLabs insuffisants sur le compte « ' . $voice['account']['name']
-                . ' » (' . $remaining . ' restants, ' . mb_strlen($text) . ' nécessaires).');
-        }
+        $this->speech->assertCredits($stationId, $voice, mb_strlen($text));
         $tmp = $this->jobs->dir($stationId, 'tmp') . '/' . $job['id'];
         $files = [$tmp . '-voice.mp3', $tmp . '-mix.mp3', $tmp . '-final.mp3'];
         try {
-            try {
-                $job['characters'] = $this->elevenLabs->speak(
-                    [
-                        'api_key' => $voice['account']['api_key'],
-                        'model_id' => $settings['elevenlabs']['model_id'],
-                        'language_code' => $settings['elevenlabs']['language_code'],
-                    ],
-                    $voice['voice_id'],
-                    $voice['voice'],
-                    $text,
-                    $files[0]
-                ) ?: mb_strlen($text);
-            } finally {
-                $this->credits->refresh($stationId, $voice['account']);
-            }
+            $job['characters'] = $this->speech->speak($station, $voice, $text, $files[0]);
             $job['voice_duration'] = round($this->mixer->duration($files[0]), 2);
 
             // 4. Music bed, then opening/closing jingles

@@ -22,6 +22,9 @@ use Plugin\AzuracastAnimateursVirtuels\Service\ClipAnnotations;
 use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\DeepSeek;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
+use Plugin\AzuracastAnimateursVirtuels\Service\Speech;
+use Plugin\AzuracastAnimateursVirtuels\Service\Voxtral;
+use Plugin\AzuracastAnimateursVirtuels\Service\VoxtralVoice;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
@@ -54,6 +57,8 @@ final class PanelController
         private readonly Launcher $launcher,
         private readonly DeepSeek $deepSeek,
         private readonly ElevenLabs $elevenLabs,
+        private readonly Voxtral $voxtral,
+        private readonly Speech $speech,
         private readonly Credits $credits,
         private readonly Adapters $adapters,
         private readonly ReloadableEntityManagerInterface $em
@@ -229,11 +234,13 @@ final class PanelController
             $settings = $this->store->read($station);
             $host = Settings::findHost($settings, (string)($body['host_id'] ?? ''))
                 ?? throw new InvalidArgumentException('Animateur introuvable : enregistrez d\'abord vos réglages.');
-            if ($settings['deepseek']['api_key'] === '' || Settings::account($settings, $host) === null) {
-                throw new InvalidArgumentException('Renseignez et enregistrez d\'abord la clé DeepSeek et un compte ElevenLabs.');
+            if (!Settings::hasVoice($host)) {
+                throw new InvalidArgumentException('Choisissez la voix de « ' . $host['name'] . ' ».');
             }
-            if ($host['voice_id'] === '') {
-                throw new InvalidArgumentException('Renseignez le Voice ID de « ' . $host['name'] . ' ».');
+            if ($settings['deepseek']['api_key'] === '' || Settings::speech($settings, $host) === null) {
+                throw new InvalidArgumentException($host['provider'] === 'voxtral'
+                    ? 'Renseignez et enregistrez d\'abord la clé DeepSeek et la clé Mistral (Voxtral).'
+                    : 'Renseignez et enregistrez d\'abord la clé DeepSeek et un compte ElevenLabs.');
             }
 
             $now = new DateTimeImmutable('now', $station->getTimezoneObject());
@@ -358,6 +365,84 @@ final class PanelController
             }
 
             return $this->json($response, ['success' => true, 'message' => implode(' ', $parts), 'voice' => $voice]);
+        });
+    }
+
+    /**
+     * Checks the Mistral key and lists the voices it can use: the French presets and the voices
+     * saved in the workspace.
+     */
+    public function checkVoxtralAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $this->verifyCsrf($request);
+            $key = $this->key($request, 'voxtral');
+            $all = $this->voxtral->voices($key);
+
+            $voices = [];
+            foreach (VoxtralVoice::FRENCH_PRESETS as $preset) {
+                $voices[$preset['id']] = $preset + ['type' => 'preset', 'languages' => ['fr']];
+            }
+            foreach ($all as $voice) {
+                $french = $voice['languages'] === [] || array_filter(
+                    $voice['languages'],
+                    static fn(string $l): bool => str_starts_with($l, 'fr')
+                );
+                if ($voice['type'] === 'custom' || ($french && !isset($voices[$voice['id']]))) {
+                    $voices[$voice['id']] = [
+                        'id' => $voice['id'],
+                        'name' => $voice['name'] . ($voice['type'] === 'custom' ? ' (voix enregistrée)' : ''),
+                        'type' => $voice['type'],
+                        'languages' => $voice['languages'],
+                    ];
+                }
+            }
+            $custom = count(array_filter($all, static fn(array $v): bool => $v['type'] === 'custom'));
+
+            return $this->json($response, [
+                'success' => true,
+                'message' => 'Clé Mistral valide. ' . count($voices) . ' voix utilisables en français'
+                    . ($custom > 0 ? ', dont ' . $custom . ' enregistrée(s) dans votre espace Mistral' : '') . '.',
+                'voices' => array_values($voices),
+            ]);
+        });
+    }
+
+    /**
+     * Says a short sentence with a Voxtral voice of the form (not saved yet), to choose a voice.
+     * Costs about a hundred characters.
+     */
+    public function tryVoxtralAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $this->verifyCsrf($request);
+            $station = $request->getStation();
+            $body = $this->body($request);
+            $settings = $this->store->read($station);
+            $settings['voxtral']['api_key'] = $this->key($request, 'voxtral');
+            $voice = VoxtralVoice::validate($body['voxtral'] ?? [], 'Essai');
+            $speech = Settings::voxtralSpeech($settings, $voice, 'Essai', '')
+                ?? throw new InvalidArgumentException($voice['mode'] === 'sample'
+                    ? 'Choisissez d\'abord le fichier de voix de référence.'
+                    : 'Choisissez d\'abord une voix.');
+            $text = trim((string)($body['text'] ?? ''));
+            $text = $text !== '' ? mb_substr($text, 0, 300)
+                : 'Bonjour à toutes et à tous, et bienvenue sur ' . $station->name . ' ! On reste ensemble, '
+                    . 'avec toujours plus de bonne musique.';
+
+            $path = $this->jobs->dir((int)$station->id, 'tmp') . '/try-' . bin2hex(random_bytes(6)) . '.mp3';
+            try {
+                $this->speech->speak($station, $speech, $text, $path);
+                $audio = 'data:audio/mpeg;base64,' . base64_encode((string)file_get_contents($path));
+            } finally {
+                @unlink($path);
+            }
+
+            return $this->json($response, [
+                'success' => true,
+                'message' => 'Essai de la ' . VoxtralVoice::describe($voice) . ' (' . mb_strlen($text) . ' caractères).',
+                'audio' => $audio,
+            ]);
         });
     }
 
@@ -619,6 +704,9 @@ final class PanelController
             'today' => $writable ? $this->jobs->countToday((int)$station->id, $now) : 0,
             'today_reused' => $writable ? $this->jobs->todayStats((int)$station->id, $now)['reused'] : 0,
             'credits' => $writable ? $this->credits->all((int)$station->id, $settings) : [],
+            'voxtral_usage' => $writable && ($settings['voxtral']['api_key'] ?? '') !== ''
+                ? $this->speech->voxtralUsage((int)$station->id)
+                : null,
             'on_air' => $onAir !== null ? [
                 'host' => $onAir['host']['name'],
                 'start' => $onAir['slot']['start'],
@@ -751,7 +839,9 @@ final class PanelController
         }
         $saved = $this->store->read($request->getStation())[$service]['api_key'];
         if ($saved === '') {
-            throw new InvalidArgumentException('Saisissez d\'abord la clé API.');
+            throw new InvalidArgumentException($service === 'voxtral'
+                ? 'Saisissez d\'abord la clé API Mistral (onglet « Services IA »).'
+                : 'Saisissez d\'abord la clé API.');
         }
 
         return $saved;

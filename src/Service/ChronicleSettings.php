@@ -28,6 +28,9 @@ final class ChronicleSettings
             'enabled' => true,
             'voice_mode' => 'host',
             'host_id' => '',
+            // Own voice: "elevenlabs" (account_id, voice_id, voice) or "voxtral" (voxtral).
+            'provider' => 'elevenlabs',
+            'voxtral' => VoxtralVoice::defaults(),
             'account_id' => '',
             'voice_id' => '',
             'voice_name' => '',
@@ -123,8 +126,9 @@ final class ChronicleSettings
     /**
      * @param string[] $hostIds    ids of the station's hosts
      * @param string[] $accountIds ids of the station's ElevenLabs accounts
+     * @param bool     $voxtral    whether the Mistral key is set
      */
-    public static function validate(array $in, array $hostIds, array $accountIds): array
+    public static function validate(array $in, array $hostIds, array $accountIds, bool $voxtral = false): array
     {
         $d = self::defaults();
         $name = self::text($in['name'] ?? '', 80);
@@ -142,6 +146,8 @@ final class ChronicleSettings
             'enabled' => $enabled,
             'voice_mode' => $voiceMode,
             'host_id' => (string)($in['host_id'] ?? ''),
+            'provider' => ($in['provider'] ?? 'elevenlabs') === 'voxtral' ? 'voxtral' : 'elevenlabs',
+            'voxtral' => VoxtralVoice::validate($in['voxtral'] ?? [], 'Chronique « ' . $name . ' »'),
             'account_id' => (string)($in['account_id'] ?? ''),
             'voice_id' => self::text($in['voice_id'] ?? '', 64),
             'voice_name' => self::text($in['voice_name'] ?? '', 80),
@@ -177,6 +183,18 @@ final class ChronicleSettings
                     throw new InvalidArgumentException($label . ' : choisissez l\'animateur dont la voix est utilisée.');
                 }
                 $out['host_id'] = '';
+            }
+        } elseif ($out['provider'] === 'voxtral') {
+            if (!in_array($out['account_id'], $accountIds, true)) {
+                $out['account_id'] = '';
+            }
+            if ($enabled && !VoxtralVoice::isSet($out['voxtral'])) {
+                throw new InvalidArgumentException($out['voxtral']['mode'] === 'sample'
+                    ? $label . ' : choisissez le fichier de voix de référence.'
+                    : $label . ' : choisissez la voix Voxtral.');
+            }
+            if ($enabled && !$voxtral) {
+                throw new InvalidArgumentException($label . ' : renseignez la clé API Mistral (Services IA) pour utiliser Voxtral.');
             }
         } else {
             if ($out['voice_id'] !== '' && !preg_match('/^[A-Za-z0-9_-]{5,64}$/', $out['voice_id'])) {
@@ -235,38 +253,29 @@ final class ChronicleSettings
         return $out;
     }
 
-    /** Hosts and accounts the chronicle uses, resolved (null if the voice is not usable). */
+    /**
+     * Voice of the chronicle, resolved for Speech::speak() (see Settings::speech()); null if it
+     * cannot be used. In mode "host", the host's voice and service.
+     */
     public static function voice(array $settings, array $chronicle): ?array
     {
         if ($chronicle['voice_mode'] === 'host') {
             $host = Settings::findHost($settings, (string)$chronicle['host_id']);
-            if ($host === null || $host['voice_id'] === '') {
-                return null;
-            }
-            $account = Settings::account($settings, $host);
 
-            return $account === null ? null : [
-                'name' => $host['name'],
-                'voice_id' => $host['voice_id'],
-                'voice' => $host['voice'],
-                'account' => $account,
-                'personality' => $host['personality'],
-            ];
+            return $host === null ? null : Settings::speech($settings, $host);
         }
 
+        $name = $chronicle['voice_name'] !== '' ? $chronicle['voice_name'] : $chronicle['name'];
+        if (($chronicle['provider'] ?? 'elevenlabs') === 'voxtral') {
+            return Settings::voxtralSpeech($settings, is_array($chronicle['voxtral'] ?? null) ? $chronicle['voxtral'] : [], $name, '');
+        }
         $account = Settings::findAccount($settings, (string)$chronicle['account_id'])
             ?? ($settings['elevenlabs']['accounts'][0] ?? null);
-        if ($account === null || $chronicle['voice_id'] === '') {
+        if ($account === null || $account['api_key'] === '' || $chronicle['voice_id'] === '') {
             return null;
         }
 
-        return [
-            'name' => $chronicle['voice_name'] !== '' ? $chronicle['voice_name'] : $chronicle['name'],
-            'voice_id' => $chronicle['voice_id'],
-            'voice' => $chronicle['voice'],
-            'account' => $account,
-            'personality' => '',
-        ];
+        return Settings::elevenLabsSpeech($settings, $account, $chronicle['voice_id'], $chronicle['voice'], $name, '');
     }
 
     /**
@@ -359,7 +368,7 @@ final class ChronicleSettings
         return implode('/', $parts);
     }
 
-    private static function mediaPath(mixed $value, string $label): string
+    public static function mediaPath(mixed $value, string $label): string
     {
         $path = trim((string)$value);
         if ($path === '') {

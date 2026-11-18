@@ -97,6 +97,50 @@
                             <div class="col-md-6">
                                 <label
                                     class="form-label"
+                                    for="av-h-provider"
+                                >Service de voix</label>
+                                <select
+                                    id="av-h-provider"
+                                    v-model="form.provider"
+                                    class="form-select"
+                                >
+                                    <option value="elevenlabs">
+                                        ElevenLabs
+                                    </option>
+                                    <option value="voxtral">
+                                        Mistral Voxtral
+                                    </option>
+                                </select>
+                                <div
+                                    v-if="form.provider === 'voxtral' && !settings.voxtral.api_key"
+                                    class="form-text text-warning-emphasis"
+                                >
+                                    Renseignez et enregistrez d'abord la clé Mistral dans l'onglet « Services IA ».
+                                </div>
+                                <div
+                                    v-else
+                                    class="form-text"
+                                >
+                                    Changer de service change la voix : les clips de la bibliothèque enregistrés avec
+                                    l'autre voix ne sont plus réutilisés.
+                                </div>
+                            </div>
+                            <div
+                                v-if="form.provider === 'voxtral'"
+                                class="col-12"
+                            >
+                                <VoxtralVoiceFields
+                                    :voice="form.voxtral"
+                                    :api="api"
+                                    id-prefix="av-h-vx"
+                                />
+                            </div>
+                            <div
+                                v-if="form.provider !== 'voxtral'"
+                                class="col-md-6"
+                            >
+                                <label
+                                    class="form-label"
                                     for="av-h-account"
                                 >Compte ElevenLabs</label>
                                 <select
@@ -122,7 +166,10 @@
                                     </template>
                                 </div>
                             </div>
-                            <div class="col-md-6">
+                            <div
+                                v-if="form.provider !== 'voxtral'"
+                                class="col-md-6"
+                            >
                                 <label
                                     class="form-label"
                                     for="av-h-voice"
@@ -209,6 +256,13 @@
                     </div>
 
                     <!-- Voix -->
+                    <div
+                        v-if="tab === 'voice' && form.provider === 'voxtral'"
+                        class="alert alert-info"
+                    >
+                        Cet animateur parle avec Mistral Voxtral : sa voix et son expressivité se règlent dans l'onglet
+                        « Animateur ». Les réglages ci-dessous ne servent qu'avec ElevenLabs.
+                    </div>
                     <div v-show="tab === 'voice'">
                         <p class="text-body-secondary">
                             Ces réglages remplacent ceux de la voix dans ElevenLabs, pour cet animateur uniquement.
@@ -709,7 +763,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { DAYS, USAGES, clone, contextVariables } from "./helpers.js";
+import VoxtralVoiceFields from "./VoxtralVoiceFields.vue";
+import { DAYS, USAGES, VOXTRAL_DEFAULT, clone, contextVariables } from "./helpers.js";
 
 const props = defineProps({
     api: { type: Object, required: true },
@@ -742,6 +797,9 @@ const form = reactive(clone(props.host));
 // Hosts saved before version 1.1.0 have no library settings.
 form.library = { enabled: false, min_size: 20, max_share: 60, min_gap_days: 3, max_uses: 0, max_size: 200, fallback: true, ...(form.library || {}) };
 form.prompts.forEach((p) => { p.timeless = Boolean(p.timeless); });
+// Hosts saved before version 1.5.0 always use ElevenLabs.
+form.provider = form.provider || "elevenlabs";
+form.voxtral = { ...VOXTRAL_DEFAULT, ...(form.voxtral || {}) };
 // Saved accounts only (a new account needs to be saved before a host can use it).
 const accounts = computed(() => props.settings.elevenlabs.accounts.filter((a) => a.id));
 if (!accounts.value.some((a) => a.id === form.account_id)) form.account_id = accounts.value[0]?.id || "";

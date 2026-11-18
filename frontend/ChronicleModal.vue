@@ -127,7 +127,8 @@
                                     </option>
                                 </select>
                                 <div class="form-text">
-                                    Voix, réglages, compte ElevenLabs et personnalité de cet animateur.
+                                    Voix, réglages, service de voix (ElevenLabs ou Voxtral) et personnalité de cet
+                                    animateur.
                                 </div>
                             </div>
                             <template v-else>
@@ -147,6 +148,43 @@
                                 <div class="col-md-6">
                                     <label
                                         class="form-label"
+                                        for="av-c-provider"
+                                    >Service de voix</label>
+                                    <select
+                                        id="av-c-provider"
+                                        v-model="form.provider"
+                                        class="form-select"
+                                    >
+                                        <option value="elevenlabs">
+                                            ElevenLabs
+                                        </option>
+                                        <option value="voxtral">
+                                            Mistral Voxtral
+                                        </option>
+                                    </select>
+                                    <div
+                                        v-if="form.provider === 'voxtral' && !settings.voxtral.api_key"
+                                        class="form-text text-warning-emphasis"
+                                    >
+                                        Renseignez et enregistrez d'abord la clé Mistral dans l'onglet « Services IA ».
+                                    </div>
+                                </div>
+                                <div
+                                    v-if="form.provider === 'voxtral'"
+                                    class="col-12"
+                                >
+                                    <VoxtralVoiceFields
+                                        :voice="form.voxtral"
+                                        :api="api"
+                                        id-prefix="av-c-vx"
+                                    />
+                                </div>
+                                <div
+                                    v-if="form.provider !== 'voxtral'"
+                                    class="col-md-6"
+                                >
+                                    <label
+                                        class="form-label"
                                         for="av-c-account"
                                     >Compte ElevenLabs</label>
                                     <select
@@ -163,7 +201,10 @@
                                         </option>
                                     </select>
                                 </div>
-                                <div class="col-md-6">
+                                <div
+                                    v-if="form.provider !== 'voxtral'"
+                                    class="col-md-6"
+                                >
                                     <label
                                         class="form-label"
                                         for="av-c-voice"
@@ -191,7 +232,7 @@
                                     </div>
                                 </div>
                                 <div
-                                    v-for="sl in sliders"
+                                    v-for="sl in (form.provider === 'voxtral' ? [] : sliders)"
                                     :key="sl.key"
                                     class="col-md-3"
                                 >
@@ -228,7 +269,7 @@
                                 >
                                 <div class="form-text">
                                     Environ {{ Math.round(form.target_seconds * 2.5) }} mots, soit environ
-                                    {{ Math.round(form.target_seconds * 15) }} crédits ElevenLabs par génération.
+                                    {{ Math.round(form.target_seconds * 15) }} caractères lus par génération.
                                 </div>
                             </div>
                             <div class="col-12">
@@ -751,7 +792,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import MediaPicker from "./MediaPicker.vue";
-import { DAYS, clone } from "./helpers.js";
+import VoxtralVoiceFields from "./VoxtralVoiceFields.vue";
+import { DAYS, VOXTRAL_DEFAULT, clone } from "./helpers.js";
 
 const props = defineProps({
     api: { type: Object, required: true },
@@ -806,7 +848,12 @@ const voiceMessage = ref("");
 const sourceResults = ref([]);
 const folderEdited = ref(!props.isNew);
 
-const hosts = computed(() => props.settings.hosts.filter((h) => h.id && h.voice_id));
+// Chronicles saved before version 1.5.0 always use ElevenLabs.
+form.provider = form.provider || "elevenlabs";
+form.voxtral = { ...VOXTRAL_DEFAULT, ...(form.voxtral || {}) };
+const hosts = computed(() => props.settings.hosts.filter((h) => h.id && (h.provider === "voxtral"
+    ? (h.voxtral?.mode === "sample" ? h.voxtral.sample_media : h.voxtral?.voice_id)
+    : h.voice_id)));
 const accounts = computed(() => props.settings.elevenlabs.accounts.filter((a) => a.id));
 if (form.voice_mode === "own" && !accounts.value.some((a) => a.id === form.account_id)) {
     form.account_id = accounts.value[0]?.id || "";

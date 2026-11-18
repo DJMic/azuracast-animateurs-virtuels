@@ -52,7 +52,7 @@ final class Planner
     public static function onAir(array $settings, DateTimeImmutable $local): ?array
     {
         foreach ($settings['hosts'] ?? [] as $host) {
-            if (empty($host['enabled']) || ($host['voice_id'] ?? '') === '') {
+            if (empty($host['enabled']) || !Settings::hasVoice($host)) {
                 continue;
             }
             foreach ($host['slots'] ?? [] as $slot) {

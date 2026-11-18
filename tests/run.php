@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 // Standalone tests for the logic that does not need AzuraCast: php tests/run.php
 
-foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations', 'ChronicleSettings', 'Weather', 'Sources'] as $class) {
+foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations', 'ChronicleSettings', 'Weather', 'Sources', 'VoxtralVoice', 'Voxtral'] as $class) {
     require __DIR__ . '/../src/Service/' . $class . '.php';
 }
 
@@ -20,6 +20,8 @@ use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
 use Plugin\AzuracastAnimateursVirtuels\Service\Settings;
 use Plugin\AzuracastAnimateursVirtuels\Service\Shell;
 use Plugin\AzuracastAnimateursVirtuels\Service\Sources;
+use Plugin\AzuracastAnimateursVirtuels\Service\Voxtral;
+use Plugin\AzuracastAnimateursVirtuels\Service\VoxtralVoice;
 use Plugin\AzuracastAnimateursVirtuels\Service\Weather;
 
 $failures = 0;
@@ -106,6 +108,86 @@ throws('noms de comptes en double', static fn() => Settings::fromInput($dup, [])
 $reordered = Settings::forDisplay($multiSaved);
 $reordered['elevenlabs']['accounts'] = array_reverse($reordered['elevenlabs']['accounts']);
 check('clés retrouvées par compte, pas par position', array_column(Settings::fromInput($reordered, $multiSaved)['elevenlabs']['accounts'], 'api_key'), ['sk_b', 'sk_a']);
+
+// --- Mistral Voxtral ------------------------------------------------------------------------------
+$vxHost = Settings::defaultHost();
+$vxHost['name'] = 'Camille';
+$vxHost['provider'] = 'voxtral';
+$vxHost['voxtral'] = ['mode' => 'id', 'voice_id' => 'voice_3141', 'expressiveness' => 2.5];
+$vxInput = Settings::defaults();
+$vxInput['enabled'] = true;
+$vxInput['deepseek']['api_key'] = 'sk-deepseek-1234';
+$vxInput['hosts'] = [$vxHost];
+throws('voxtral : clé Mistral exigée', static fn() => Settings::fromInput($vxInput, []), 'clé API Mistral');
+$vxInput['voxtral']['api_key'] = 'mistral-key-5678';
+$vxSaved = Settings::fromInput($vxInput, []);
+check('voxtral : activable sans compte ElevenLabs', $vxSaved['enabled'] && Settings::isReady($vxSaved), true);
+check('voxtral : animateur sans compte ElevenLabs', $vxSaved['hosts'][0]['account_id'], '');
+check('voxtral : clé masquée', Settings::forDisplay($vxSaved)['voxtral']['api_key'], Settings::MASK);
+check('voxtral : masque = clé inchangée', Settings::fromInput(Settings::forDisplay($vxSaved), $vxSaved)['voxtral']['api_key'], 'mistral-key-5678');
+$vxSpeech = Settings::speech($vxSaved, $vxSaved['hosts'][0]);
+check('voxtral : voix résolue', [$vxSpeech['provider'], $vxSpeech['model'], $vxSpeech['api_key'], $vxSpeech['voxtral']['voice_id']], ['voxtral', 'voxtral-mini-tts-3-0', 'mistral-key-5678', 'voice_3141']);
+check('voxtral : animateur planifiable', Settings::hasVoice($vxSaved['hosts'][0]), true);
+check('elevenlabs : voix résolue', Settings::speech($saved, $saved['hosts'][0])['config']['api_key'], 'sk_eleven_9876');
+$noVoice = $vxInput;
+$noVoice['hosts'][0]['voxtral'] = ['mode' => 'sample', 'sample_media' => ''];
+throws('voxtral : fichier de référence exigé', static fn() => Settings::fromInput($noVoice, []), 'voix de référence');
+$noVoice['hosts'][0]['voxtral'] = ['mode' => 'id', 'voice_id' => 'bad id!'];
+throws('voxtral : identifiant invalide', static fn() => Settings::fromInput($noVoice, []), 'invalide');
+$mixed = $vxInput;
+$mixed['hosts'][] = $host;
+throws('elevenlabs : compte exigé pour l\'autre animateur', static fn() => Settings::fromInput($mixed, []), 'ajoutez un compte ElevenLabs');
+
+$v = VoxtralVoice::validate(['mode' => 'sample', 'sample_media' => 'Voix/lea.mp3', 'sample_seconds' => 90, 'expressiveness' => 0.5], 'x');
+check('voxtral : extrait limité à 30 s, expressivité par défaut', [$v['sample_seconds'], $v['expressiveness']], [30, 0.0]);
+throws('voxtral : chemin de média refusé', static fn() => VoxtralVoice::validate(['sample_media' => '../etc/passwd'], 'x'), 'invalide');
+check('voxtral : requête avec voix', VoxtralVoice::payload('voxtral-mini-tts-3-0', $vxSaved['hosts'][0]['voxtral'], 'Bonjour'), [
+    'model' => 'voxtral-mini-tts-3-0', 'input' => 'Bonjour', 'response_format' => 'mp3', 'voice_id' => 'voice_3141', 'expressiveness' => 2.5,
+]);
+check('voxtral : requête par clonage sans voice_id', array_key_exists('voice_id', VoxtralVoice::payload('', $v, 'Salut')), false);
+check('voxtral : audio base64 décodé', Voxtral::audio(json_encode(['audio_data' => base64_encode(str_repeat('A', 600))]), 'application/json'), str_repeat('A', 600));
+check('voxtral : audio brut accepté', strlen(Voxtral::audio(str_repeat("\xFF", 800), 'audio/mpeg')), 800);
+try {
+    Voxtral::audio('{"id":"x"}', 'application/json');
+    check('voxtral : réponse sans audio refusée', false, true);
+} catch (RuntimeException $e) {
+    check('voxtral : réponse sans audio refusée', str_contains($e->getMessage(), 'sans audio'), true);
+}
+check('voxtral : liste des voix', Voxtral::parseVoices(['data' => [
+    ['id' => 'voice_592', 'slug' => 'marie', 'name' => 'Marie', 'type' => 'preset', 'languages' => ['fr']],
+    ['id' => '7f0c-uuid', 'name' => 'Ma voix', 'type' => 'custom', 'languages' => []],
+]]), [
+    ['id' => 'voice_592', 'name' => 'Marie', 'type' => 'preset', 'languages' => ['fr']],
+    ['id' => '7f0c-uuid', 'name' => 'Ma voix', 'type' => 'custom', 'languages' => []],
+]);
+$long = str_repeat('Une phrase de chronique assez longue pour remplir. ', 30) . '[emotion=happy]Et une bonne nouvelle pour finir ! ' . str_repeat('Encore une phrase de suite ici. ', 40);
+$parts = VoxtralVoice::split($long, 600);
+check('voxtral : texte long découpé', count($parts) > 2 && max(array_map('mb_strlen', $parts)) <= 600 + 20, true);
+check('voxtral : rien de perdu au découpage', str_replace(' ', '', implode('', array_map(static fn(string $p): string => (string)preg_replace('/^(\[(?:emotion|pace)=[a-z-]+\])+/', '', $p), $parts))), str_replace(' ', '', $long));
+check('voxtral : émotion reportée sur la partie suivante', str_starts_with($parts[count($parts) - 1], '[emotion=happy]'), true);
+check('voxtral : texte court non découpé', VoxtralVoice::split('Bonjour !'), ['Bonjour !']);
+check('voxtral : signature différente d\'ElevenLabs', Library::voiceSignature($vxSaved, $vxSaved['hosts'][0]) !== Library::voiceSignature($saved, $saved['hosts'][0]), true);
+$vxOther = $vxSaved['hosts'][0];
+$vxOther['voxtral']['voice_id'] = 'voice_592';
+check('voxtral : signature liée à la voix', Library::voiceSignature($vxSaved, $vxOther) !== Library::voiceSignature($vxSaved, $vxSaved['hosts'][0]), true);
+check('voxtral : nettoyage des balises', PromptBuilder::clean('[warmly] Bonjour à tous ! [laughs] <break time="1s" /> [pace=slow] On ralentit… [emotion=ecstatic] Fin.', 'voxtral-mini-tts-3-0'),
+    '[emotion=warm]Bonjour à tous ! [pace=slow]On ralentit… Fin.');
+check('voxtral : consignes d\'écriture', str_contains(PromptBuilder::radioGuidelines('voxtral-mini-tts-3-0'), '[emotion='), true);
+check('voxtral : modèle de l\'animateur dans le prompt', str_contains(PromptBuilder::messages($vxSaved, $vxSaved['hosts'][0], $vxSaved['hosts'][0]['prompts'][0], [])[0]['content'], '[emotion='), true);
+check('elevenlabs : consignes inchangées', str_contains(PromptBuilder::messages($saved, $saved['hosts'][0], $saved['hosts'][0]['prompts'][0], [])[0]['content'], '[warmly]'), true);
+$vxChron = ChronicleSettings::defaults();
+$vxChron['name'] = 'Agenda';
+$vxChron['voice_mode'] = 'own';
+$vxChron['provider'] = 'voxtral';
+$vxChron['voxtral'] = ['mode' => 'id', 'voice_id' => 'voice_592'];
+$vxChron['sources'] = [['type' => 'url', 'url' => 'https://www.example.org/agenda']];
+throws('voxtral : chronique sans clé Mistral', static fn() => ChronicleSettings::validate($vxChron, [], []), 'clé API Mistral');
+$vxChronValid = ChronicleSettings::validate($vxChron, [], [], true);
+check('voxtral : chronique avec voix propre', ChronicleSettings::voice($vxSaved, $vxChronValid)['voxtral']['voice_id'], 'voice_592');
+$vxChron['voice_mode'] = 'host';
+$vxChron['host_id'] = $vxSaved['hosts'][0]['id'];
+check('voxtral : chronique avec la voix de l\'animateur', ChronicleSettings::voice($vxSaved, ChronicleSettings::validate($vxChron, [$vxSaved['hosts'][0]['id']], [], true))['provider'], 'voxtral');
+check('voxtral : extrait de référence', array_slice(Mixer::extractArguments('ffmpeg', 'in.mp3', 'out.wav', 12.5, 15), 4, 4), ['-ss', '12.5', '-i', 'in.mp3']);
 
 // --- Credits ----------------------------------------------------------------------------------------
 check('lecture des crédits', ElevenLabs::parseSubscription(['tier' => 'free', 'character_count' => 4230, 'character_limit' => 10000, 'next_character_count_reset_unix' => 1764547200]), ['used' => 4230, 'limit' => 10000, 'reset' => 1764547200, 'tier' => 'free']);
@@ -523,6 +605,8 @@ if (Shell::which('ffmpeg') !== null) {
     check('mixage réel sans boucle : durée complète malgré un fond de 4 s', abs($short - 11.0) < 0.15, true);
     check('mixage réel sans boucle : plus de fond après sa fin', $level($dir . '/short.mp3', 9.0, 'lowpass=f=200') < -60, true);
     $voice = $mixer->mix($dir . '/voice.mp3', null, null, Settings::defaults()['bed'], Settings::defaults()['output'], $dir . '/voice-only.mp3');
+    $mixer->extract($dir . '/voice.mp3', $dir . '/sample.wav', 1.0, 3);
+    check('extrait réel : 3 s en mono 24 kHz', [abs($mixer->duration($dir . '/sample.wav') - 3.0) < 0.1, str_contains(Shell::run(['ffprobe', '-v', 'error', '-show_entries', 'stream=sample_rate,channels', '-of', 'csv=p=0', $dir . '/sample.wav'])['out'], '24000,1')], [true, true]);
     check('mixage réel : voix seule', abs($voice - 5.8) < 0.15, true);
     exec('rm -rf ' . escapeshellarg($dir));
 }

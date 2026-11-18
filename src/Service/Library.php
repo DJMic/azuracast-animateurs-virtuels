@@ -9,7 +9,7 @@ use RuntimeException;
 /**
  * Library of timeless interventions, per host: the text and the recorded voice (before mixing).
  * A reused intervention takes a voice from here and gets a new music bed: no DeepSeek or
- * ElevenLabs call.
+ * ElevenLabs or Voxtral call.
  *
  *   <data>/<station id>/library/<host id>/<entry id>.json   text, voice signature, uses
  *   <data>/<station id>/library/<host id>/<entry id>.mp3    voice only
@@ -94,6 +94,12 @@ final class Library
     /** Identifies the voice a clip was recorded with (Voice ID, model, language, tuning). */
     public static function voiceSignature(array $settings, array $host): string
     {
+        if (($host['provider'] ?? 'elevenlabs') === 'voxtral') {
+            return VoxtralVoice::signature(
+                (string)($settings['voxtral']['model'] ?? VoxtralVoice::DEFAULT_MODEL),
+                is_array($host['voxtral'] ?? null) ? $host['voxtral'] : []
+            );
+        }
         $voice = $host['voice'] ?? [];
         ksort($voice);
 

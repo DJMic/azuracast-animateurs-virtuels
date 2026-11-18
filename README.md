@@ -5,7 +5,7 @@ Plugin AzuraCast qui fait parler des **animateurs virtuels** entre les morceaux 
 Pour chaque intervention :
 
 1. **DeepSeek** écrit le texte, à partir des consignes de la station, de la personnalité de l'animateur et d'un prompt. Il connaît le morceau qui vient de passer, celui qui suit, l'heure et le jour.
-2. **ElevenLabs** lit ce texte avec la voix choisie (Voice ID) et produit un mp3.
+2. **ElevenLabs** ou **Mistral Voxtral** (au choix, pour chaque animateur) lit ce texte avec la voix choisie et produit un mp3.
 3. **ffmpeg** mixe la voix sur un **fond musical** tiré d'une playlist. La musique démarre seule, baisse du nombre de dB choisi pendant la voix, remonte puis s'éteint en fondu. La longueur du fond s'adapte à celle de la voix.
 4. Le clip est placé dans la **file d'attente de l'AutoDJ**, entre deux morceaux.
 
@@ -15,7 +15,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 
 - **Plusieurs animateurs par station.** Chacun a :
   - un nom ;
-  - une voix ElevenLabs (Voice ID) et ses propres réglages (stabilité, fidélité, style, vitesse) ;
+  - une voix ElevenLabs (Voice ID) et ses propres réglages (stabilité, fidélité, style, vitesse), ou une voix Mistral Voxtral ;
   - une personnalité ;
   - ses prompts ;
   - ses tranches horaires ;
@@ -29,6 +29,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 - **Jusqu'à 5 comptes ElevenLabs par station** (depuis la version 1.3.0). Chaque animateur utilise les voix et les crédits de son compte.
 - **Suivi des crédits ElevenLabs** de chaque compte : crédits utilisés et restants, date de remise à zéro, estimation de la date d'épuisement au rythme actuel, alerte sous un seuil. Un compte épuisé n'est plus sollicité : ses animateurs puisent dans la bibliothèque si elle est activée. Cette fonction nécessite la permission « User : lecture » sur la clé.
 - **Eleven v4**, le modèle ElevenLabs le plus naturel et expressif, est proposé et recommandé.
+- **Mistral Voxtral** (depuis la version 1.5.0), une autre voix pour les animateurs et les chroniques, facturée à l'usage et sans abonnement. Voir « Mistral Voxtral » plus bas.
 - **Anti-répétition.** DeepSeek reçoit les dernières interventions de l'animateur pour varier ses formulations.
 - **Bibliothèque de clips réutilisables** (depuis la version 1.1.0) : les voix obtenues avec des prompts « intemporels » sont gardées et rediffusées sur un nouveau fond musical, sans appel aux API. Voir « Bibliothèque » plus bas.
 - **Fond musical réglable :**
@@ -53,6 +54,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
 - `git` sur le serveur, et un accès `root` ou `sudo`.
 - Un compte **DeepSeek** avec du crédit, et une clé API (https://platform.deepseek.com, rubrique « API keys »).
 - Un ou plusieurs comptes **ElevenLabs** (5 au maximum par station), avec une clé API par compte et le **Voice ID** de chaque voix. Chaque clé doit avoir au minimum les permissions **Text to Speech** et **Voices (lecture)**. La permission **User (lecture)** permet d'afficher les crédits restants. Attention : les comptes gratuits ne peuvent servir qu'à un usage non commercial, selon les conditions d'ElevenLabs.
+- Et/ou une clé API **Mistral** pour Voxtral (https://console.mistral.ai, rubrique « API Keys », avec un moyen de paiement enregistré). Un des deux services de voix suffit.
 
 Le serveur n'a pas besoin de Node.js : l'interface est compilée dans un conteneur Docker temporaire.
 
@@ -106,7 +108,7 @@ Le script retire seulement les lignes de ce plugin de `docker-compose.override.y
 
 Ouvrez une station, puis **Animateurs virtuels**. Il faut l'autorisation « Gérer les médias » de la station.
 
-1. **Services IA** : collez la clé DeepSeek, puis ajoutez un ou plusieurs comptes ElevenLabs (5 au maximum), chacun avec un nom et sa clé API. Cliquez sur **Vérifier** pour chaque clé. Réglez si besoin la limite quotidienne.
+1. **Services IA** : collez la clé DeepSeek, puis ajoutez un ou plusieurs comptes ElevenLabs (5 au maximum), chacun avec un nom et sa clé API, et/ou la clé Mistral pour Voxtral. Cliquez sur **Vérifier** pour chaque clé. Réglez si besoin la limite quotidienne.
 2. **Fond musical et son** : choisissez la playlist des fonds musicaux. Créez-la d'abord dans AzuraCast :
    - type **« Avancée »**, pour que l'AutoDJ ne la diffuse pas seule ;
    - **activée** ;
@@ -114,7 +116,7 @@ Ouvrez une station, puis **Animateurs virtuels**. Il faut l'autorisation « Gér
 
    Réglez ensuite la baisse sous la voix : 15 dB par défaut.
 3. **Animateurs** › **Ajouter un animateur** :
-   - nom, Voice ID (bouton **Vérifier**), durée visée et personnalité ;
+   - nom, service de voix et voix (Voice ID ElevenLabs avec le bouton **Vérifier**, ou voix Voxtral avec **Écouter un essai**), durée visée et personnalité ;
    - prompts : deux exemples sont proposés ;
    - tranches horaires.
 4. Cliquez sur **Tester** à côté de l'animateur. Écoutez le résultat et ajustez les prompts ou les réglages du son.
@@ -148,13 +150,26 @@ Une chronique (infos, agenda, météo, horoscope…) est produite en cinq étape
    - **pages web** : le texte principal est extrait, sans les menus ni les scripts. Certains sites bloquent les robots ou se construisent en JavaScript : le bouton « Tester les sources » montre ce qui est réellement lu ;
    - **météo** : prévisions d'Open-Meteo pour une ville. Ce service est gratuit et sans clé, mais réservé à un usage non commercial.
 2. **Écriture.** DeepSeek écrit le texte uniquement à partir des sources, avec la date du jour et la règle de ne rien inventer. Si aucune source n'est lisible, ou si les sources ne contiennent rien d'utile, rien n'est publié et la version précédente reste en place.
-3. **Voix et mixage.** ElevenLabs lit le texte avec la voix d'un animateur ou une voix propre à la chronique. La voix est mixée sur le fond musical propre à la chronique, choisi parmi les fichiers des médias, avec les réglages de son de la chronique (baisse sous la voix, musique seule avant et après, fondus, volume cible…). Ces réglages sont indépendants de ceux des interventions. Le fond n'est jamais répété : s'il est plus court que la chronique, il s'arrête en fondu et la voix continue seule (la fiche le signale). Un jingle d'ouverture et/ou de fermeture des médias peut ensuite être ajouté.
+3. **Voix et mixage.** ElevenLabs ou Voxtral lit le texte avec la voix d'un animateur ou une voix propre à la chronique. La voix est mixée sur le fond musical propre à la chronique, choisi parmi les fichiers des médias, avec les réglages de son de la chronique (baisse sous la voix, musique seule avant et après, fondus, volume cible…). Ces réglages sont indépendants de ceux des interventions. Le fond n'est jamais répété : s'il est plus court que la chronique, il s'arrête en fondu et la voix continue seule (la fiche le signale). Un jingle d'ouverture et/ou de fermeture des médias peut ensuite être ajouté.
 4. **Enregistrement dans les médias.** Le fichier est enregistré dans `Chroniques/<nom>/` (dossier modifiable, créé s'il n'existe pas), par exemple `Meteo_2026-11-18_0630.mp3`, avec un titre et un artiste. Le plugin utilise le même mécanisme qu'un envoi depuis AzuraCast : il fonctionne avec un stockage local comme avec un stockage distant S3.
 5. **Playlist et nettoyage.** Le fichier est ajouté à la playlist choisie et la version précédente en est retirée : la playlist ne contient toujours que la plus récente. Programmez cette playlist avec le planificateur d'AzuraCast. Les anciennes versions sont supprimées des médias après X jours (0 = jamais). La plus récente n'est jamais supprimée, et le plugin ne touche qu'aux fichiers qu'il a créés.
 
 La génération se fait aux jours et heures choisis pour chaque chronique, ou avec le bouton « Générer maintenant ». Prévoyez-la quelques minutes avant l'heure de diffusion. Les chroniques ne comptent pas dans la limite quotidienne des interventions.
 
 **Attention aux crédits ElevenLabs** : une minute de chronique fait environ 900 caractères. Une chronique quotidienne d'une minute consomme donc environ 27 000 crédits par mois.
+
+## Mistral Voxtral (depuis la version 1.5.0)
+
+Voxtral est le modèle de synthèse vocale de Mistral. Dans la fiche d'un animateur (ou d'une chronique à voix propre), choisissez **Service de voix › Mistral Voxtral**, puis la voix :
+
+- **Voix Mistral** : une voix prête à l'emploi, par exemple les voix françaises Marie (`voice_592`), Manon (`voice_3137`), Léa (`voice_589`) et Camille (`voice_3141`). Le bouton **Charger les voix** liste aussi les voix que vous avez clonées et enregistrées dans Mistral AI Studio. Attention : Mistral conserve une voix enregistrée 30 jours par défaut (un an au maximum, à régler à sa création).
+- **Voix clonée depuis un fichier** : choisissez dans les médias un enregistrement propre de la voix à reproduire (une seule personne qui parle, sans musique), le point de départ et la durée de l'extrait (15 secondes conseillées, 30 au maximum). L'extrait est envoyé à Mistral avec chaque demande : rien n'est conservé chez Mistral, la voix ne peut donc pas expirer. N'utilisez que la voix d'une personne qui vous a donné son accord.
+
+Le curseur **Expressivité** va de 1 (posé, très fidèle à la voix) à 5 (très expressif mais moins stable) ; tout à gauche, Mistral applique son réglage par défaut. Le bouton **Écouter un essai** fait dire une phrase à la voix (une centaine de caractères facturés).
+
+Avec l'option « Écriture radio », DeepSeek peut ajouter jusqu'à deux balises comprises par Voxtral, comme `[emotion=happy]` ou `[pace=slow]`. Les textes longs (chroniques) sont lus en plusieurs parties assemblées automatiquement.
+
+Voxtral n'a pas de crédits : Mistral facture chaque mois les caractères lus. Le plugin affiche le nombre de caractères envoyés ce mois-ci, avec une estimation haute du coût ; le montant exact figure dans Mistral AI Studio, rubrique « Usage ».
 
 ## Bibliothèque : moins d'appels aux API avec le temps
 
@@ -180,6 +195,7 @@ La bibliothèque n'est pas concernée par le nettoyage automatique des clips au 
 | Réglages et clés API | `/var/azuracast/stations/<station>/config/animateurs-virtuels.json` (droits 0600) |
 | Clips, historique, état | `/var/azuracast/plugins/azuracast-animateurs-virtuels/data/<id station>/` |
 | Bibliothèque (voix réutilisables) | `…/data/<id station>/library/<id animateur>/` |
+| Extraits des voix clonées (Voxtral) | `…/data/<id station>/voices/` |
 
 Dans le conteneur, le dossier `data/` est monté sur `/var/azuracast/plugin-data/animateurs-virtuels`.
 
@@ -187,8 +203,9 @@ Dans le conteneur, le dossier `data/` est monté sur `/var/azuracast/plugin-data
 
 - **DeepSeek** facture au nombre de jetons. Une intervention coûte une fraction de centime.
 - **ElevenLabs** décompte les caractères de votre abonnement. Une intervention de 20 secondes fait environ 300 caractères. Avec une intervention toutes les 4 chansons de 6 h à 9 h, comptez environ 15 interventions par jour et par animateur.
+- **Mistral Voxtral** facture les caractères lus, de 0,013 à 0,016 $ pour 1 000 caractères selon le modèle : environ un demi-centime pour une intervention de 20 secondes.
 
-Chaque intervention de l'historique indique le nombre de caractères ElevenLabs utilisés. Les clips réutilisés depuis la bibliothèque ne coûtent rien.
+Chaque intervention de l'historique indique le nombre de caractères lus et le service utilisé. Les clips réutilisés depuis la bibliothèque ne coûtent rien.
 
 ## Commandes utiles
 

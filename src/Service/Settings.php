@@ -50,6 +50,10 @@ final class Settings
                 'language_code' => 'fr',
                 'low_credits' => 500,
             ],
+            'voxtral' => [
+                'api_key' => '',
+                'model' => VoxtralVoice::DEFAULT_MODEL,
+            ],
             'system_prompt' => self::DEFAULT_SYSTEM_PROMPT,
             'radio_style' => true,
             'avoid_repeat' => 3,
@@ -89,7 +93,10 @@ final class Settings
             'id' => '',
             'name' => '',
             'enabled' => true,
+            // Voice service: "elevenlabs" (voice_id, voice, account_id) or "voxtral" (voxtral).
+            'provider' => 'elevenlabs',
             'voice_id' => '',
+            'voxtral' => VoxtralVoice::defaults(),
             'personality' => '',
             'target_seconds' => 20,
             'voice' => [
@@ -237,6 +244,15 @@ final class Settings
             throw new InvalidArgumentException('Code de langue ElevenLabs invalide (exemple : fr).');
         }
 
+        $vx = is_array($input['voxtral'] ?? null) ? $input['voxtral'] : [];
+        $out['voxtral'] = [
+            'api_key' => self::secret($vx, (string)$current['voxtral']['api_key']),
+            'model' => self::text($vx['model'] ?? '', 80) ?: $d['voxtral']['model'],
+        ];
+        if (!preg_match('/^[a-z0-9._-]{3,80}$/', $out['voxtral']['model'])) {
+            throw new InvalidArgumentException('Modèle Voxtral invalide (exemple : ' . VoxtralVoice::DEFAULT_MODEL . ').');
+        }
+
         $out['system_prompt'] = self::text($input['system_prompt'] ?? '', 6000, true) ?: self::DEFAULT_SYSTEM_PROMPT;
         $out['avoid_repeat'] = self::int($input['avoid_repeat'] ?? 3, 0, 10);
         $out['radio_style'] = self::bool($input['radio_style'] ?? true);
@@ -284,9 +300,25 @@ final class Settings
             $out['hosts'][] = $host;
         }
 
-        // Each host uses one of the accounts (the first one if none is chosen).
+        // Each ElevenLabs host uses one of the accounts (the first one if none is chosen).
         $accountIds = array_column($accounts, 'id');
         foreach ($out['hosts'] as &$host) {
+            if ($host['provider'] === 'voxtral') {
+                if ($host['enabled'] && $out['enabled'] && $out['voxtral']['api_key'] === '') {
+                    throw new InvalidArgumentException(
+                        '« ' . $host['name'] . ' » utilise Mistral Voxtral : renseignez la clé API Mistral (Services IA).'
+                    );
+                }
+                if (!in_array($host['account_id'], $accountIds, true)) {
+                    $host['account_id'] = '';
+                }
+                continue;
+            }
+            if ($host['enabled'] && $out['enabled'] && $accounts === []) {
+                throw new InvalidArgumentException(
+                    '« ' . $host['name'] . ' » utilise ElevenLabs : ajoutez un compte ElevenLabs (Services IA).'
+                );
+            }
             if (!in_array($host['account_id'], $accountIds, true)) {
                 if ($host['account_id'] !== '' && $host['enabled']) {
                     throw new InvalidArgumentException(
@@ -300,9 +332,14 @@ final class Settings
 
         $out['chronicles'] = [];
         $chronicleNames = [];
-        $hostIds = array_column(array_filter($out['hosts'], static fn(array $h): bool => $h['voice_id'] !== ''), 'id');
+        $hostIds = array_column(array_filter($out['hosts'], [self::class, 'hasVoice']), 'id');
         foreach (is_array($input['chronicles'] ?? null) ? $input['chronicles'] : [] as $chronicle) {
-            $chronicle = ChronicleSettings::validate(is_array($chronicle) ? $chronicle : [], $hostIds, $accountIds);
+            $chronicle = ChronicleSettings::validate(
+                is_array($chronicle) ? $chronicle : [],
+                $hostIds,
+                $accountIds,
+                $out['voxtral']['api_key'] !== ''
+            );
             $key = mb_strtolower($chronicle['name']);
             if (isset($chronicleNames[$key])) {
                 throw new InvalidArgumentException('Deux chroniques portent le nom « ' . $chronicle['name'] . ' ».');
@@ -312,9 +349,10 @@ final class Settings
         }
 
         if ($out['enabled']) {
-            if ($out['deepseek']['api_key'] === '' || $accounts === []) {
+            if ($out['deepseek']['api_key'] === '' || ($accounts === [] && $out['voxtral']['api_key'] === '')) {
                 throw new InvalidArgumentException(
-                    'Pour activer les animateurs virtuels, renseignez la clé API DeepSeek et au moins un compte ElevenLabs.'
+                    'Pour activer les animateurs virtuels, renseignez la clé API DeepSeek et au moins un service de voix '
+                    . '(un compte ElevenLabs ou la clé Mistral Voxtral).'
                 );
             }
         }
@@ -339,7 +377,9 @@ final class Settings
             'id' => self::uid($in['id'] ?? ''),
             'name' => $name,
             'enabled' => self::bool($in['enabled'] ?? true),
+            'provider' => ($in['provider'] ?? 'elevenlabs') === 'voxtral' ? 'voxtral' : 'elevenlabs',
             'voice_id' => $voiceId,
+            'voxtral' => VoxtralVoice::validate($in['voxtral'] ?? [], '« ' . $name . ' »'),
             'personality' => self::text($in['personality'] ?? '', 4000, true),
             'target_seconds' => self::int($in['target_seconds'] ?? 20, 3, 180),
             'voice' => [
@@ -446,8 +486,13 @@ final class Settings
         }
 
         if ($host['enabled']) {
-            if ($host['voice_id'] === '') {
+            if ($host['provider'] === 'elevenlabs' && $host['voice_id'] === '') {
                 throw new InvalidArgumentException('Indiquez le Voice ID ElevenLabs de « ' . $name . ' ».');
+            }
+            if ($host['provider'] === 'voxtral' && !VoxtralVoice::isSet($host['voxtral'])) {
+                throw new InvalidArgumentException($host['voxtral']['mode'] === 'sample'
+                    ? 'Choisissez le fichier de voix de référence de « ' . $name . ' ».'
+                    : 'Choisissez la voix Voxtral de « ' . $name . ' ».');
             }
             if (!array_filter($host['prompts'], static fn(array $p): bool => $p['enabled'])) {
                 throw new InvalidArgumentException('« ' . $name . ' » doit avoir au moins un prompt actif.');
@@ -470,6 +515,9 @@ final class Settings
             $account['api_key_hint'] = $key !== '' ? '…' . mb_substr($key, -4) : '';
         }
         unset($account);
+        $key = (string)$settings['voxtral']['api_key'];
+        $settings['voxtral']['api_key'] = $key !== '' ? self::MASK : '';
+        $settings['voxtral']['api_key_hint'] = $key !== '' ? '…' . mb_substr($key, -4) : '';
 
         return $settings;
     }
@@ -489,7 +537,74 @@ final class Settings
     {
         return !empty($settings['enabled'])
             && ($settings['deepseek']['api_key'] ?? '') !== ''
-            && ($settings['elevenlabs']['accounts'] ?? []) !== [];
+            && (($settings['elevenlabs']['accounts'] ?? []) !== [] || ($settings['voxtral']['api_key'] ?? '') !== '');
+    }
+
+    /** Whether the host's voice is set for its service. */
+    public static function hasVoice(array $host): bool
+    {
+        return ($host['provider'] ?? 'elevenlabs') === 'voxtral'
+            ? VoxtralVoice::isSet(array_replace(VoxtralVoice::defaults(), is_array($host['voxtral'] ?? null) ? $host['voxtral'] : []))
+            : ($host['voice_id'] ?? '') !== '';
+    }
+
+    /**
+     * Voice of a host, resolved for Speech::speak(): service, model, key and voice settings.
+     * Null if it cannot be used (no voice, no account or key).
+     */
+    public static function speech(array $settings, array $host): ?array
+    {
+        if (!self::hasVoice($host)) {
+            return null;
+        }
+        if (($host['provider'] ?? 'elevenlabs') === 'voxtral') {
+            return self::voxtralSpeech($settings, $host['voxtral'], $host['name'], (string)($host['personality'] ?? ''));
+        }
+        $account = self::account($settings, $host);
+        if ($account === null || $account['api_key'] === '') {
+            return null;
+        }
+
+        return self::elevenLabsSpeech($settings, $account, $host['voice_id'], $host['voice'], $host['name'], (string)($host['personality'] ?? ''));
+    }
+
+    public static function elevenLabsSpeech(array $settings, array $account, string $voiceId, array $voice, string $name, string $personality): array
+    {
+        return [
+            'provider' => 'elevenlabs',
+            'name' => $name,
+            'personality' => $personality,
+            'model' => (string)$settings['elevenlabs']['model_id'],
+            'label' => 'ElevenLabs « ' . $account['name'] . ' »',
+            'account' => $account,
+            'voice_id' => $voiceId,
+            'voice' => $voice,
+            'config' => [
+                'api_key' => (string)$account['api_key'],
+                'model_id' => $settings['elevenlabs']['model_id'],
+                'language_code' => $settings['elevenlabs']['language_code'],
+            ],
+        ];
+    }
+
+    public static function voxtralSpeech(array $settings, array $voice, string $name, string $personality): ?array
+    {
+        $key = (string)($settings['voxtral']['api_key'] ?? '');
+        $voice = array_replace(VoxtralVoice::defaults(), $voice);
+        if ($key === '' || !VoxtralVoice::isSet($voice)) {
+            return null;
+        }
+
+        return [
+            'provider' => 'voxtral',
+            'name' => $name,
+            'personality' => $personality,
+            'model' => (string)($settings['voxtral']['model'] ?? VoxtralVoice::DEFAULT_MODEL),
+            'label' => 'Mistral Voxtral (' . VoxtralVoice::describe($voice) . ')',
+            'account' => null,
+            'api_key' => $key,
+            'voxtral' => $voice,
+        ];
     }
 
     /** ElevenLabs account of a host (its own, else the first one), or null. */

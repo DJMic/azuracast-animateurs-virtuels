@@ -37,6 +37,18 @@ export const ELEVENLABS_MODELS = [
     {value: "eleven_turbo_v2_5", label: "Turbo v2.5"},
 ];
 
+/** French preset voices of Voxtral 3 (also returned by the "Charger les voix" button). */
+export const VOXTRAL_PRESETS = [
+    { id: "voice_592", name: "Marie (féminine)" },
+    { id: "voice_3137", name: "Manon (féminine)" },
+    { id: "voice_589", name: "Léa (féminine)" },
+    { id: "voice_3141", name: "Camille (féminine)" },
+];
+
+export const VOXTRAL_DEFAULT = {
+    mode: "id", voice_id: "", sample_media: "", sample_start: 0, sample_seconds: 15, expressiveness: 0,
+};
+
 export const DEEPSEEK_MODELS = ["deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash"];
 
 export function clone(value) {

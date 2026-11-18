@@ -111,7 +111,7 @@ final class PromptBuilder
     {
         $system = self::fill((string)$settings['system_prompt'], $variables);
         if (!empty($settings['radio_style'])) {
-            $system .= "\n\n" . self::radioGuidelines((string)($settings['elevenlabs']['model_id'] ?? ''));
+            $system .= "\n\n" . self::radioGuidelines(self::speechModel($settings, $host));
         }
 
         $personality = trim((string)($host['personality'] ?? ''));
@@ -165,7 +165,7 @@ final class PromptBuilder
     {
         $system = self::fill(self::CHRONICLE_SYSTEM_PROMPT, $variables);
         if (!empty($settings['radio_style'])) {
-            $system .= "\n\n" . self::radioGuidelines((string)($settings['elevenlabs']['model_id'] ?? ''));
+            $system .= "\n\n" . self::radioGuidelines((string)($voice['model'] ?? $settings['elevenlabs']['model_id'] ?? ''));
         }
         $style = trim(implode("\n", array_filter([
             trim((string)($voice['personality'] ?? '')),
@@ -192,6 +192,20 @@ final class PromptBuilder
         ];
     }
 
+    /** Voice model of a host: the Voxtral model or the ElevenLabs one, depending on its service. */
+    public static function speechModel(array $settings, array $host): string
+    {
+        return ($host['provider'] ?? 'elevenlabs') === 'voxtral'
+            ? (string)($settings['voxtral']['model'] ?? VoxtralVoice::DEFAULT_MODEL)
+            : (string)($settings['elevenlabs']['model_id'] ?? '');
+    }
+
+    /** Mistral Voxtral reads [emotion=…] and [pace=…] tags. */
+    public static function isVoxtral(string $model): bool
+    {
+        return str_starts_with($model, 'voxtral');
+    }
+
     /** Eleven v3 and v4 (and their variants) read [audio tags] and ignore SSML break tags. */
     public static function supportsAudioTags(string $model): bool
     {
@@ -212,7 +226,12 @@ final class PromptBuilder
             - Pas de liste, pas de parenthèses, pas d'abréviation : écris tout comme cela se prononce.
             TXT;
 
-        if (self::supportsAudioTags($model)) {
+        if (self::isVoxtral($model)) {
+            $text .= "\n" . <<<'TXT'
+                - Indications de jeu : si le ton doit changer, tu peux placer au maximum deux balises, juste avant le passage concerné : une émotion sous la forme [emotion=valeur] avec une valeur en anglais parmi happy, excited, warm, playful, amused, calm, curious, confident, surprised, proud, reflective ; et éventuellement un rythme [pace=slow] ou [pace=fast]. La voix déduit déjà le ton de tes mots : n'en mets que si c'est utile. Aucun autre texte entre crochets.
+                - Pour une courte pause, utilise des points de suspension (…) ou un tiret (—).
+                TXT;
+        } elseif (self::supportsAudioTags($model)) {
             $text .= "\n" . <<<'TXT'
                 - Indications de jeu : tu peux placer une ou deux indications en anglais entre crochets, juste avant le passage concerné, par exemple [warmly], [cheerfully], [excited], [softly], [chuckles] ou [laughs]. Jamais plus de deux, jamais deux indications contradictoires, et aucun autre texte entre crochets.
                 - Pour une courte pause, utilise des points de suspension (…) ou un tiret (—).
@@ -234,6 +253,7 @@ final class PromptBuilder
     public static function clean(string $text, string $model = '', int $max = 2500): string
     {
         $tags = self::supportsAudioTags($model);
+        $voxtral = self::isVoxtral($model);
 
         $text = (string)preg_replace('~<think>.*?</think>~is', '', $text);
 
@@ -241,8 +261,8 @@ final class PromptBuilder
         $breaks = [];
         $text = (string)preg_replace_callback(
             '~<\s*break\b[^>]*?time\s*=\s*["\']?\s*(\d+(?:[.,]\d+)?)\s*(ms|s)?\s*["\']?[^>]*>~i',
-            static function (array $m) use ($tags, &$breaks): string {
-                if ($tags || count($breaks) >= 2) {
+            static function (array $m) use ($tags, $voxtral, &$breaks): string {
+                if ($tags || $voxtral || count($breaks) >= 2) {
                     return ' ';
                 }
                 $seconds = (float)str_replace(',', '.', $m[1]);
@@ -267,8 +287,18 @@ final class PromptBuilder
         $kept = 0;
         $text = (string)preg_replace_callback(
             '~\[([^\]]*)\]~u',
-            static function (array $m) use ($tags, &$kept): string {
+            static function (array $m) use ($tags, $voxtral, &$kept): string {
                 $tag = trim($m[1]);
+                if ($voxtral) {
+                    $tag = self::voxtralTag($tag);
+                    if ($tag !== null && $kept < 3) {
+                        $kept++;
+
+                        return $tag;
+                    }
+
+                    return ' ';
+                }
                 if ($tags && $kept < 3 && preg_match('/^[a-z][a-z \'-]{1,30}$/i', $tag)) {
                     $kept++;
 
@@ -291,6 +321,40 @@ final class PromptBuilder
             $text = $end > $max / 2 ? mb_substr($cut, 0, $end + 1) : $cut;
         }
 
-        return (string)preg_replace_callback("~\x01(\d)\x01~", static fn(array $m): string => $breaks[(int)$m[1]] ?? '', $text);
+        $text = (string)preg_replace_callback("~\x01(\d)\x01~", static fn(array $m): string => $breaks[(int)$m[1]] ?? '', $text);
+        if ($voxtral) {
+            // A tag is followed directly by the text it applies to.
+            $text = trim((string)preg_replace('/(\[(?:emotion|pace)=[a-z-]+\])\s+/', '$1', $text));
+            $text = (string)preg_replace('/(\[(?:emotion|pace)=[a-z-]+\])+$/', '', $text);
+        }
+
+        return trim($text);
+    }
+
+    /** Synonyms of Eleven-style directions, read as Voxtral emotions. */
+    private const array VOXTRAL_SYNONYMS = [
+        'warmly' => 'warm', 'cheerfully' => 'happy', 'cheerful' => 'happy', 'joyful' => 'happy',
+        'excitedly' => 'excited', 'enthusiastic' => 'excited', 'softly' => 'calm', 'gently' => 'calm',
+        'playfully' => 'playful', 'curiously' => 'curious', 'proudly' => 'proud', 'sadly' => 'sad',
+        'surprise' => 'surprised', 'serious' => 'somber', 'seriously' => 'somber', 'confidently' => 'confident',
+    ];
+
+    /** Normalized Voxtral tag ([emotion=…] or [pace=…]), or null if Voxtral would not understand it. */
+    private static function voxtralTag(string $tag): ?string
+    {
+        $tag = strtolower(str_replace(' ', '', $tag));
+        if (preg_match('/^(emotion|pace)[=:]([a-z-]+)$/', $tag, $m)) {
+            [$kind, $value] = [$m[1], $m[2]];
+        } else {
+            [$kind, $value] = ['emotion', $tag];
+        }
+        if ($kind === 'emotion') {
+            $value = self::VOXTRAL_SYNONYMS[$value] ?? $value;
+
+            return in_array($value, VoxtralVoice::EMOTIONS, true) ? '[emotion=' . $value . ']' : null;
+        }
+        $value = ['slowly' => 'slow', 'quickly' => 'fast', 'normal' => 'moderate'][$value] ?? $value;
+
+        return in_array($value, VoxtralVoice::PACES, true) ? '[pace=' . $value . ']' : null;
     }
 }

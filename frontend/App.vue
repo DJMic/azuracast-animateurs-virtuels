@@ -55,7 +55,7 @@
             <template v-else-if="settings">
                 <div class="card-body alert alert-info mb-0 rounded-0">
                     Des animateurs créés par IA prennent la parole entre les morceaux de
-                    <strong>{{ station.name }}</strong> : DeepSeek écrit le texte, ElevenLabs le lit, et la voix est
+                    <strong>{{ station.name }}</strong> : DeepSeek écrit le texte, ElevenLabs ou Mistral Voxtral le lit, et la voix est
                     mixée sur un fond musical. Les horaires suivent le fuseau horaire de la station
                     (<strong>{{ station.timezone }}</strong>).
                 </div>
@@ -118,6 +118,11 @@
                                     v-else-if="c.remaining !== null"
                                     :class="c.exhausted ? 'text-danger' : (c.low ? 'text-warning-emphasis' : '')"
                                 >{{ formatNumber(c.remaining) }} crédits restants</strong>
+                            </template>
+                            <template v-if="status.voxtral_usage">
+                                <br>
+                                Mistral Voxtral : <strong>{{ formatNumber(status.voxtral_usage.month) }}</strong>
+                                caractères ce mois-ci
                             </template>
                         </div>
                     </div>
@@ -240,7 +245,14 @@
                                                 class="badge text-bg-secondary ms-1"
                                             >Désactivé</span>
                                         </h5>
-                                        <small class="text-body-secondary">Voix : <code>{{ host.voice_id || '—' }}</code></small>
+                                        <small
+                                            v-if="host.provider === 'voxtral'"
+                                            class="text-body-secondary"
+                                        >Voix : Mistral Voxtral, <code>{{ host.voxtral.mode === 'sample' ? 'clonée' : (host.voxtral.voice_id || '—') }}</code></small>
+                                        <small
+                                            v-else
+                                            class="text-body-secondary"
+                                        >Voix : ElevenLabs, <code>{{ host.voice_id || '—' }}</code></small>
                                     </td>
                                     <td>
                                         <div
@@ -581,6 +593,104 @@
                                 Le code langue force la prononciation (modèles v4, v3, Flash et Turbo ; ignoré par
                                 Multilingual v2, qui détecte la langue seul). Changer de modèle change la voix : les clips
                                 de la bibliothèque enregistrés avec l'ancien modèle ne sont plus réutilisés.
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="col-12">
+                            <legend class="fs-5">
+                                Mistral Voxtral (voix)
+                            </legend>
+                            <p class="form-text mt-0">
+                                Une autre façon de faire parler les animateurs et les chroniques : chaque animateur (et
+                                chaque chronique à voix propre) choisit son service de voix dans sa fiche. Voxtral est
+                                facturé à l'usage par Mistral, de 0,013 à 0,016 $ pour 1 000 caractères selon le modèle, sans abonnement :
+                                il n'y a pas de crédits à surveiller. Voix françaises prêtes à l'emploi ou voix clonée à
+                                partir d'un enregistrement des médias.
+                            </p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label
+                                        class="form-label"
+                                        for="av-vx-key"
+                                    >Clé API Mistral</label>
+                                    <div class="input-group">
+                                        <input
+                                            id="av-vx-key"
+                                            v-model="settings.voxtral.api_key"
+                                            type="password"
+                                            class="form-control"
+                                            autocomplete="new-password"
+                                            @focus="clearMask('voxtral')"
+                                        >
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary"
+                                            :disabled="checking === 'voxtral'"
+                                            @click="checkVoxtral"
+                                        >
+                                            Vérifier
+                                        </button>
+                                    </div>
+                                    <div class="form-text">
+                                        <template v-if="settings.voxtral.api_key_hint">
+                                            Clé enregistrée ({{ settings.voxtral.api_key_hint }}). Laissez le champ tel
+                                            quel pour la garder.
+                                        </template>
+                                        <template v-else>
+                                            À créer dans Mistral AI Studio (console.mistral.ai), rubrique « API Keys ».
+                                            Un moyen de paiement doit être enregistré dans l'espace de travail.
+                                        </template>
+                                    </div>
+                                    <div
+                                        v-if="settings.voxtral.api_key_hint"
+                                        class="form-check mt-1"
+                                    >
+                                        <input
+                                            id="av-vx-clear"
+                                            v-model="settings.voxtral.api_key_clear"
+                                            class="form-check-input"
+                                            type="checkbox"
+                                        >
+                                        <label
+                                            class="form-check-label"
+                                            for="av-vx-clear"
+                                        >Supprimer la clé enregistrée</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label
+                                        class="form-label"
+                                        for="av-vx-model"
+                                    >Modèle</label>
+                                    <input
+                                        id="av-vx-model"
+                                        v-model.trim="settings.voxtral.model"
+                                        class="form-control font-monospace"
+                                        list="av-vx-models"
+                                    >
+                                    <datalist id="av-vx-models">
+                                        <option value="voxtral-mini-tts-3-0">
+                                            Voxtral TTS 3
+                                        </option>
+                                        <option value="voxtral-mini-tts-latest">
+                                            Dernière version
+                                        </option>
+                                    </datalist>
+                                    <div class="form-text">
+                                        voxtral-mini-tts-3-0 recommandé. Changer de modèle change la voix des clips de
+                                        la bibliothèque.
+                                    </div>
+                                </div>
+                                <div
+                                    v-if="status.voxtral_usage"
+                                    class="col-12 small"
+                                >
+                                    Utilisation : <strong>{{ formatNumber(status.voxtral_usage.month) }}</strong>
+                                    caractères ce mois-ci (au plus
+                                    {{ (status.voxtral_usage.month / 1000 * 0.016).toFixed(2).replace('.', ',') }} $),
+                                    {{ formatNumber(status.voxtral_usage.previous) }} le mois dernier. Le montant exact
+                                    figure dans Mistral AI Studio, rubrique « Usage ».
+                                </div>
                             </div>
                         </fieldset>
 
@@ -1460,7 +1570,8 @@
                                     (voix {{ formatDuration(testResult.voice_duration) }})
                                 </template>
                                 <template v-if="testResult.characters">
-                                    · {{ testResult.characters }} caractères ElevenLabs
+                                    · {{ testResult.characters }} caractères lus
+                                    ({{ testResult.provider === 'voxtral' ? 'Mistral Voxtral' : 'ElevenLabs' }})
                                 </template>
                                 <template v-if="testResult.bed && testResult.bed.title">
                                     · fond : {{ testResult.bed.title }}
@@ -1732,6 +1843,18 @@ async function broadcast(job) {
     }
 }
 
+async function checkVoxtral() {
+    checking.value = "voxtral";
+    try {
+        const result = await api.checkVoxtral(settings.value.voxtral.api_key);
+        notice.value = { type: "success", text: result.message };
+    } catch (error) {
+        notice.value = { type: "error", text: error.message };
+    } finally {
+        checking.value = null;
+    }
+}
+
 async function checkDeepSeek() {
     checking.value = "deepseek";
     try {
@@ -1750,6 +1873,7 @@ async function checkDeepSeek() {
 function accountUsers(account) {
     const first = settings.value.elevenlabs.accounts[0];
     return settings.value.hosts
+        .filter((h) => h.provider !== "voxtral")
         .filter((h) => h.account_id === account.id || (!h.account_id && first === account))
         .map((h) => h.name);
 }

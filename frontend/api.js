@@ -43,6 +43,8 @@ export function createApi(base) {
         broadcast: (jobId) => post(`/broadcast/${encodeURIComponent(jobId)}`),
         checkDeepSeek: (apiKey) => post("/check/deepseek", {api_key: apiKey}),
         checkElevenLabs: (apiKey, voiceId, accountId = "") => post("/check/elevenlabs", {api_key: apiKey, voice_id: voiceId, account_id: accountId}),
+        checkVoxtral: (apiKey) => post("/check/voxtral", {api_key: apiKey}),
+        tryVoxtral: (voxtral, apiKey = "") => post("/voxtral/try", {voxtral, api_key: apiKey}),
         runChronicle: (id) => post(`/chronicles/${encodeURIComponent(id)}/run`),
         testSources: (chronicle) => post("/chronicles/sources", {chronicle}),
         geocode: (location) => post("/weather/geocode", {location}),
