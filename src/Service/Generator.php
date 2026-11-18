@@ -290,33 +290,53 @@ final class Generator
 
     /**
      * Mixes a voice over a random track of a playlist (or alone if $playlistId is null),
-     * with the station's mixing settings. Used by interventions and chronicles.
+     * with the station's intervention mixing settings.
      *
      * @return array{duration: float, bed: ?array{title: string, artist: string, path: string}}
      */
     public function mixWithBed(Station $station, array $settings, ?int $playlistId, string $voicePath, string $outPath, array $metadata): array
     {
         $bed = $playlistId !== null ? $this->pickBedFromPlaylist($station, $playlistId) : null;
+
+        return $this->mixOver($station, $settings['bed'], $settings['output'], $bed, $voicePath, $outPath, $metadata);
+    }
+
+    /**
+     * Mixes a voice over a media file of the station (or alone if $bed is null).
+     *
+     * @param array{path: string, title?: string, artist?: string, length?: float}|null $bed
+     *
+     * @return array{duration: float, bed: ?array{title: string, artist: string, path: string}}
+     */
+    public function mixOver(Station $station, array $bedSettings, array $output, ?array $bed, string $voicePath, string $outPath, array $metadata): array
+    {
         if ($bed === null) {
             return [
-                'duration' => $this->mixer->mix($voicePath, null, null, $settings['bed'], $settings['output'], $outPath, $metadata),
+                'duration' => $this->mixer->mix($voicePath, null, null, $bedSettings, $output, $outPath, $metadata),
                 'bed' => null,
             ];
         }
-        $duration = $this->filesystems->getMediaFilesystem($station)->withLocalFile(
+        $fs = $this->filesystems->getMediaFilesystem($station);
+        if (!$fs->fileExists($bed['path'])) {
+            throw new RuntimeException('Fond musical introuvable dans les médias : ' . $bed['path']);
+        }
+        $duration = $fs->withLocalFile(
             $bed['path'],
             fn(string $local): float => $this->mixer->mix(
                 $voicePath,
                 $local,
-                $bed['length'] > 0 ? (float)$bed['length'] : null,
-                $settings['bed'],
-                $settings['output'],
+                !empty($bed['length']) ? (float)$bed['length'] : null,
+                $bedSettings,
+                $output,
                 $outPath,
                 $metadata
             )
         );
 
-        return ['duration' => $duration, 'bed' => ['title' => $bed['title'], 'artist' => $bed['artist'], 'path' => $bed['path']]];
+        return [
+            'duration' => $duration,
+            'bed' => ['title' => (string)($bed['title'] ?? ''), 'artist' => (string)($bed['artist'] ?? ''), 'path' => $bed['path']],
+        ];
     }
 
     /**

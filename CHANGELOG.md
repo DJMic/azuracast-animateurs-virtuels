@@ -1,5 +1,12 @@
 # Changements
 
+## 1.4.1 – 2026-11-18
+
+- **Chroniques : fond musical et son propres à chaque chronique.**
+  - Le fond musical se choisit parmi les fichiers des médias (recherche par nom) au lieu d'une playlist.
+  - Chaque chronique a ses propres réglages : baisse sous la voix, volume du fond, musique seule avant et après, fondus, transition, départ au hasard, normalisation et qualité mp3. Ils sont indépendants de ceux des interventions.
+  - Le fond n'est jamais répété en boucle. S'il est plus court que la chronique, il s'arrête en fondu et la voix continue seule, et la fiche de la chronique le signale.
+
 ## 1.4.0 – 2026-11-18
 
 - **Chroniques** : infos, agenda, météo, horoscope… autant que vous voulez par station.

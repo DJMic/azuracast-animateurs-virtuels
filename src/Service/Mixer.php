@@ -50,6 +50,10 @@ final class Mixer
         array $metadata = []
     ): float {
         $voiceDuration = $this->duration($voicePath);
+        $loop = $bed['loop'] ?? true;
+        if ($bedPath !== null && !$loop && $bedDuration === null) {
+            $bedDuration = $this->duration($bedPath);
+        }
         $offset = 0.0;
         if ($bedPath !== null && !empty($bed['random_start']) && $bedDuration !== null) {
             $total = $bed['intro'] + $voiceDuration + $bed['outro'];
@@ -58,7 +62,8 @@ final class Mixer
             }
         }
 
-        $args = self::arguments($this->ffmpeg(), $voicePath, $voiceDuration, $bedPath, $offset, $bed, $output, $outPath, $metadata);
+        $available = $bedPath !== null && !$loop && $bedDuration !== null ? max(0.5, $bedDuration - $offset) : null;
+        $args = self::arguments($this->ffmpeg(), $voicePath, $voiceDuration, $bedPath, $offset, $bed, $output, $outPath, $metadata, $available);
         $result = Shell::run($args, 120);
         if ($result['code'] !== 0 || !is_file($outPath) || filesize($outPath) < 1000) {
             @unlink($outPath);
@@ -117,6 +122,10 @@ final class Mixer
     /**
      * ffmpeg command line (pure function, tested).
      *
+     * $bedAvailable: seconds of bed that can be played (no loop). If the bed is shorter than
+     * intro + voice + outro, it fades out at its end and the voice goes on alone.
+     * Null: the bed is looped as needed.
+     *
      * @return string[]
      */
     public static function arguments(
@@ -128,7 +137,8 @@ final class Mixer
         array $bed,
         array $output,
         string $outPath,
-        array $metadata = []
+        array $metadata = [],
+        ?float $bedAvailable = null
     ): array {
         $fmt = static fn(float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.') ?: '0';
         $stereoVoice = 'aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono,pan=stereo|c0=c0|c1=c0';
@@ -154,23 +164,31 @@ final class Mixer
                 $envelope = "if(lt(t,$a),1,if(lt(t,$c),$g,if(lt(t,$d),$g+(1-$g)*(t-$c)/($d-$c),1)))";
             }
 
+            $bedEnd = $bedAvailable !== null ? min($total, $bedAvailable) : $total;
             $bedChain = 'aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo'
-                . ',atrim=0:' . $fmt($total) . ',asetpts=PTS-STARTPTS'
+                . ',atrim=0:' . $fmt($bedEnd) . ',asetpts=PTS-STARTPTS'
                 . ',volume=' . $fmt($gain)
                 . ",volume='" . $envelope . "':eval=frame";
-            $fadeIn = min((float)$bed['fade_in'], $total);
+            $fadeIn = min((float)$bed['fade_in'], $bedEnd);
             if ($fadeIn > 0) {
                 $bedChain .= ',afade=t=in:st=0:d=' . $fmt($fadeIn);
             }
-            $fadeOut = min((float)$bed['fade_out'], $total);
+            $fadeOut = min((float)$bed['fade_out'], $bedEnd);
             if ($fadeOut > 0) {
-                $bedChain .= ',afade=t=out:st=' . $fmt($total - $fadeOut) . ':d=' . $fmt($fadeOut);
+                $bedChain .= ',afade=t=out:st=' . $fmt($bedEnd - $fadeOut) . ':d=' . $fmt($fadeOut);
+            }
+            if ($bedEnd < $total) {
+                // Bed shorter than needed (no loop): silence until the end of the voice.
+                $bedChain .= ',apad=whole_dur=' . $fmt($total);
             }
 
             if ($bedOffset > 0) {
                 array_push($args, '-ss', $fmt($bedOffset));
             }
-            array_push($args, '-stream_loop', '-1', '-i', $bedPath);
+            if ($bedAvailable === null) {
+                array_push($args, '-stream_loop', '-1');
+            }
+            array_push($args, '-i', $bedPath);
 
             $delay = (int)round($intro * 1000);
             $graph = '[1:a]' . $bedChain . '[bed];'

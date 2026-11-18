@@ -478,6 +478,18 @@ $weatherText = Weather::describe(['current' => ['temperature_2m' => 6.4, 'appare
         'precipitation_probability_max' => [80], 'precipitation_sum' => [4.25], 'wind_speed_10m_max' => [30],
         'sunrise' => ['2026-11-18T08:05'], 'sunset' => ['2026-11-18T16:45']]], 'Namur');
 check('météo : conditions en français', str_contains($weatherText, 'pluie faible, 6 °C (ressenti 3 °C)') && str_contains($weatherText, 'maximum 9 °C'), true);
+[$cBed, $cOut] = ChronicleSettings::mixSettings($valid);
+check('chronique : réglages de son propres, sans boucle', [$cBed['loop'], $cBed['duck_db'], $cOut['lufs']], [false, 15.0, -14.0]);
+$custom = $chron;
+$custom['sound'] = ['duck_db' => 20, 'intro' => 5, 'bitrate' => 999];
+$customValid = ChronicleSettings::validate($custom, [$chron['host_id']], []);
+check('chronique : son réglé par chronique', [$customValid['sound']['duck_db'], $customValid['sound']['intro'], $customValid['sound']['bitrate']], [20.0, 5.0, 192]);
+$custom['bed_media'] = '../secret.mp3';
+throws('chronique : fond musical invalide', static fn() => ChronicleSettings::validate($custom, [$chron['host_id']], []), 'fond musical');
+$noLoop = Mixer::arguments('ffmpeg', 'v.mp3', 60.0, 'bed.mp3', 0.0, $cBed, $cOut, 'o.mp3', [], 20.0);
+$noLoopGraph = $noLoop[array_search('-filter_complex', $noLoop, true) + 1];
+check('fond court sans boucle : pas de répétition', in_array('-stream_loop', $noLoop, true), false);
+check('fond court sans boucle : fondu à sa fin puis silence', str_contains($noLoopGraph, 'atrim=0:20,') && str_contains($noLoopGraph, 'afade=t=out:st=18:d=2') && str_contains($noLoopGraph, 'apad=whole_dur=66'), true);
 $concat = Mixer::concatArguments('ffmpeg', ['a.mp3', 'b.mp3', 'c.mp3'], 'o.mp3', 192, ['title' => 'Infos']);
 check('assemblage des jingles', str_contains(implode(' ', $concat), '[a0][a1][a2]concat=n=3:v=0:a=1[out]'), true);
 
@@ -507,6 +519,9 @@ if (Shell::which('ffmpeg') !== null) {
     $before = $level($dir . '/out.mp3', 1.5, 'lowpass=f=200');
     $during = $level($dir . '/out.mp3', 5.0, 'lowpass=f=200');
     check('mixage réel : fond baissé d\'au moins 10 dB sous la voix', $before - $during >= 10, true);
+    $short = $mixer->mix($dir . '/voice.mp3', $dir . '/bed.mp3', null, ['loop' => false] + Settings::defaults()['bed'], Settings::defaults()['output'], $dir . '/short.mp3');
+    check('mixage réel sans boucle : durée complète malgré un fond de 4 s', abs($short - 11.0) < 0.15, true);
+    check('mixage réel sans boucle : plus de fond après sa fin', $level($dir . '/short.mp3', 9.0, 'lowpass=f=200') < -60, true);
     $voice = $mixer->mix($dir . '/voice.mp3', null, null, Settings::defaults()['bed'], Settings::defaults()['output'], $dir . '/voice-only.mp3');
     check('mixage réel : voix seule', abs($voice - 5.8) < 0.15, true);
     exec('rm -rf ' . escapeshellarg($dir));

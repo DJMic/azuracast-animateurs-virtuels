@@ -125,7 +125,6 @@ final class PanelController
                 $this->checkPlaylist($station, $host['bed_playlist_id']);
             }
             foreach ($settings['chronicles'] as &$chronicle) {
-                $this->checkPlaylist($station, $chronicle['bed_playlist_id']);
                 $this->checkPlaylist($station, $chronicle['playlist_id']);
                 // Weather sources: the place is located once, when saving.
                 foreach ($chronicle['sources'] as &$source) {

@@ -186,14 +186,13 @@ final class ChronicleGenerator
                     'album' => $chronicle['name'],
                 ]
             );
-            $playlistId = $chronicle['bed_enabled']
-                ? (($chronicle['bed_playlist_id'] ?? null) ?: ($settings['bed']['playlist_id'] ?? null))
-                : null;
+            [$bedSettings, $output] = ChronicleSettings::mixSettings($chronicle);
             $hasJingles = $chronicle['intro_media'] !== '' || $chronicle['outro_media'] !== '';
-            $mix = $this->generator->mixWithBed(
+            $mix = $this->generator->mixOver(
                 $station,
-                $settings,
-                $playlistId ? (int)$playlistId : null,
+                $bedSettings,
+                $output,
+                $chronicle['bed_media'] !== '' ? ['path' => $chronicle['bed_media'], 'title' => basename($chronicle['bed_media'])] : null,
                 $files[0],
                 $hasJingles ? $files[1] : $files[2],
                 $hasJingles ? [] : $metadata
@@ -201,7 +200,7 @@ final class ChronicleGenerator
             $job['bed'] = $mix['bed'];
             $duration = $mix['duration'];
             if ($hasJingles) {
-                $duration = $this->addJingles($station, $chronicle, $files[1], $files[2], (int)$settings['output']['bitrate'], $metadata);
+                $duration = $this->addJingles($station, $chronicle, $files[1], $files[2], (int)$output['bitrate'], $metadata);
             }
             $job['duration'] = round($duration, 2);
 

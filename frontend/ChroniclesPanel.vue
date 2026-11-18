@@ -4,8 +4,8 @@
             Une chronique (infos, agenda, météo, horoscope…) est écrite par DeepSeek à partir de ses sources, lue par
             ElevenLabs, mixée sur un fond musical avec un éventuel habillage, puis enregistrée dans les
             <strong>médias</strong> de la station. Elle remplace la version précédente dans la playlist choisie : la
-            diffusion se programme ensuite avec le planificateur de playlists d'AzuraCast. Le mixage utilise les réglages
-            de l'onglet « Interventions › Fond musical et son ».
+            diffusion se programme ensuite avec le planificateur de playlists d'AzuraCast. Chaque chronique a son propre
+            fond musical (un fichier des médias) et ses propres réglages de son.
         </p>
         <div class="buttons mb-3">
             <button

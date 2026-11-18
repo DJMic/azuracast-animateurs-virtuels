@@ -43,8 +43,9 @@ final class ChronicleSettings
             'target_seconds' => 60,
             'sources' => [],
             'freshness_hours' => 24,
-            'bed_enabled' => true,
-            'bed_playlist_id' => null,
+            'bed_media' => '',
+            'bed_media_length' => null,
+            'sound' => self::defaultSound(),
             'intro_media' => '',
             'outro_media' => '',
             'playlist_id' => null,
@@ -53,6 +54,49 @@ final class ChronicleSettings
             'schedule' => ['days' => [1, 2, 3, 4, 5, 6, 7], 'times' => []],
             'meta_title' => '{chronique} du {date}',
             'meta_artist' => '{station}',
+        ];
+    }
+
+    /** Sound settings of a chronicle (its own, independent from the interventions). */
+    public static function defaultSound(): array
+    {
+        return [
+            'duck_db' => 15.0,
+            'bed_gain_db' => 0.0,
+            'intro' => 3.0,
+            'outro' => 3.0,
+            'fade_in' => 1.0,
+            'fade_out' => 2.0,
+            'ramp' => 0.8,
+            'random_start' => false,
+            'normalize' => true,
+            'lufs' => -14.0,
+            'bitrate' => 192,
+        ];
+    }
+
+    /**
+     * Mixer settings for a chronicle: the bed is played once, never looped.
+     *
+     * @return array{0: array, 1: array} bed settings, output settings
+     */
+    public static function mixSettings(array $chronicle): array
+    {
+        $sound = array_replace(self::defaultSound(), is_array($chronicle['sound'] ?? null) ? $chronicle['sound'] : []);
+
+        return [
+            [
+                'duck_db' => $sound['duck_db'],
+                'bed_gain_db' => $sound['bed_gain_db'],
+                'intro' => $sound['intro'],
+                'outro' => $sound['outro'],
+                'fade_in' => $sound['fade_in'],
+                'fade_out' => $sound['fade_out'],
+                'ramp' => $sound['ramp'],
+                'random_start' => $sound['random_start'],
+                'loop' => false,
+            ],
+            ['normalize' => $sound['normalize'], 'lufs' => $sound['lufs'], 'bitrate' => $sound['bitrate']],
         ];
     }
 
@@ -113,8 +157,9 @@ final class ChronicleSettings
             'target_seconds' => self::int($in['target_seconds'] ?? 60, 10, 600),
             'sources' => [],
             'freshness_hours' => self::int($in['freshness_hours'] ?? 24, 0, 24 * 31),
-            'bed_enabled' => self::bool($in['bed_enabled'] ?? true),
-            'bed_playlist_id' => self::id($in['bed_playlist_id'] ?? null),
+            'bed_media' => self::mediaPath($in['bed_media'] ?? '', $label . ' : fond musical'),
+            'bed_media_length' => is_numeric($in['bed_media_length'] ?? null) ? round((float)$in['bed_media_length'], 1) : null,
+            'sound' => self::sound(is_array($in['sound'] ?? null) ? $in['sound'] : []),
             'intro_media' => self::mediaPath($in['intro_media'] ?? '', $label . ' : jingle d\'ouverture'),
             'outro_media' => self::mediaPath($in['outro_media'] ?? '', $label . ' : jingle de fermeture'),
             'playlist_id' => self::id($in['playlist_id'] ?? null),
@@ -269,6 +314,25 @@ final class ChronicleSettings
         $ascii = trim((string)preg_replace('/[\s_]+/', ' ', $ascii));
 
         return str_replace(' ', $space, mb_substr($ascii, 0, 60));
+    }
+
+    private static function sound(array $in): array
+    {
+        $bitrate = (int)($in['bitrate'] ?? 192);
+
+        return [
+            'duck_db' => self::float($in['duck_db'] ?? 15, 0.0, 60.0),
+            'bed_gain_db' => self::float($in['bed_gain_db'] ?? 0, -40.0, 12.0),
+            'intro' => self::float($in['intro'] ?? 3, 0.0, 30.0),
+            'outro' => self::float($in['outro'] ?? 3, 0.0, 30.0),
+            'fade_in' => self::float($in['fade_in'] ?? 1, 0.0, 10.0),
+            'fade_out' => self::float($in['fade_out'] ?? 2, 0.0, 15.0),
+            'ramp' => self::float($in['ramp'] ?? 0.8, 0.05, 5.0),
+            'random_start' => self::bool($in['random_start'] ?? false),
+            'normalize' => self::bool($in['normalize'] ?? true),
+            'lufs' => self::float($in['lufs'] ?? -14, -30.0, -6.0),
+            'bitrate' => in_array($bitrate, [128, 160, 192, 256, 320], true) ? $bitrate : 192,
+        ];
     }
 
     private static function folder(string $folder, string $name, string $label): string

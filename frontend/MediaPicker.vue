@@ -18,8 +18,9 @@
                 v-if="modelValue"
                 type="button"
                 class="btn btn-outline-secondary"
-                aria-label="Aucun jingle"
-                @click="emit('update:modelValue', '')"
+                :aria-label="emptyLabel"
+                :title="emptyLabel"
+                @click="emit('update:modelValue', ''); emit('picked', null)"
             >
                 ×
             </button>
@@ -50,8 +51,9 @@ const props = defineProps({
     label: { type: String, required: true },
     modelValue: { type: String, default: "" },
     api: { type: Object, required: true },
+    emptyLabel: { type: String, default: "Aucun" },
 });
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits(["update:modelValue", "picked"]);
 
 const results = ref([]);
 const message = ref("");
@@ -60,6 +62,11 @@ let timer = null;
 function onInput(event) {
     const value = event.target.value;
     emit("update:modelValue", value);
+    const chosen = results.value.find((f) => f.path === value);
+    if (chosen) {
+        emit("picked", chosen);
+        return;
+    }
     window.clearTimeout(timer);
     if (value.trim().length < 2) {
         results.value = [];

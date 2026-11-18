@@ -465,64 +465,124 @@
                         </div>
                     </div>
 
-                    <!-- Habillage -->
+                    <!-- Fond musical et son -->
                     <div v-show="tab === 'sound'">
-                        <div class="form-check form-switch mb-2">
-                            <input
-                                id="av-c-bed"
-                                v-model="form.bed_enabled"
-                                class="form-check-input"
-                                type="checkbox"
-                                role="switch"
-                            >
-                            <label
-                                class="form-check-label"
-                                for="av-c-bed"
-                            >Fond musical sous la voix</label>
-                        </div>
-                        <div class="mb-3">
-                            <label
-                                class="form-label"
-                                for="av-c-bedpl"
-                            >Playlist du fond musical</label>
-                            <select
-                                id="av-c-bedpl"
-                                v-model="form.bed_playlist_id"
-                                class="form-select"
-                                :disabled="!form.bed_enabled"
-                            >
-                                <option :value="null">
-                                    Celle de la station (Interventions › Fond musical et son)
-                                </option>
-                                <option
-                                    v-for="p in playlists"
-                                    :key="p.id"
-                                    :value="p.id"
-                                >
-                                    {{ p.name }}{{ p.advanced ? ' (Avancée)' : '' }}
-                                </option>
-                            </select>
-                        </div>
                         <div class="row g-3">
                             <div class="col-md-6">
+                                <MediaPicker
+                                    id="av-c-bed"
+                                    v-model="form.bed_media"
+                                    :api="api"
+                                    label="Fond musical (fichier des médias)"
+                                    empty-label="Aucun fond (voix seule)"
+                                    @picked="(f) => (form.bed_media_length = f ? f.length : null)"
+                                />
+                                <div
+                                    v-if="bedTooShort"
+                                    class="alert alert-warning py-2 mt-2 mb-0"
+                                >
+                                    Ce fond dure {{ Math.round(form.bed_media_length) }} s, la chronique environ
+                                    {{ Math.round(expectedLength) }} s : il ne sera pas répété. Il s'arrêtera en fondu et
+                                    la voix continuera seule.
+                                </div>
+                            </div>
+                            <div class="col-md-3">
                                 <MediaPicker
                                     id="av-c-intro"
                                     v-model="form.intro_media"
                                     :api="api"
-                                    label="Jingle d'ouverture (facultatif)"
+                                    label="Jingle d'ouverture"
+                                    empty-label="Aucun"
                                 />
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-3">
                                 <MediaPicker
                                     id="av-c-outro"
                                     v-model="form.outro_media"
                                     :api="api"
-                                    label="Jingle de fermeture (facultatif)"
+                                    label="Jingle de fermeture"
+                                    empty-label="Aucun"
                                 />
                             </div>
                         </div>
+                        <div class="form-text mb-3">
+                            Tapez quelques lettres pour chercher dans les médias. Les jingles sont joués tels quels avant et
+                            après la chronique.
+                        </div>
+
+                        <h3 class="fs-6">
+                            Réglages du son de cette chronique
+                        </h3>
+                        <div class="row g-3">
+                            <div
+                                v-for="f in soundFields"
+                                :key="f.key"
+                                class="col-md-3"
+                            >
+                                <label
+                                    class="form-label"
+                                    :for="`av-c-snd-${f.key}`"
+                                >{{ f.label }}</label>
+                                <input
+                                    :id="`av-c-snd-${f.key}`"
+                                    v-model.number="form.sound[f.key]"
+                                    type="number"
+                                    :min="f.min"
+                                    :max="f.max"
+                                    :step="f.step"
+                                    class="form-control"
+                                    :disabled="f.needsNormalize && !form.sound.normalize"
+                                >
+                            </div>
+                            <div class="col-md-3">
+                                <label
+                                    class="form-label"
+                                    for="av-c-snd-bitrate"
+                                >Qualité mp3</label>
+                                <select
+                                    id="av-c-snd-bitrate"
+                                    v-model.number="form.sound.bitrate"
+                                    class="form-select"
+                                >
+                                    <option
+                                        v-for="b in [128, 160, 192, 256, 320]"
+                                        :key="b"
+                                        :value="b"
+                                    >
+                                        {{ b }} kbit/s
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 d-flex flex-column justify-content-end">
+                                <div class="form-check">
+                                    <input
+                                        id="av-c-snd-norm"
+                                        v-model="form.sound.normalize"
+                                        class="form-check-input"
+                                        type="checkbox"
+                                    >
+                                    <label
+                                        class="form-check-label"
+                                        for="av-c-snd-norm"
+                                    >Normaliser le volume de la chronique</label>
+                                </div>
+                                <div class="form-check">
+                                    <input
+                                        id="av-c-snd-random"
+                                        v-model="form.sound.random_start"
+                                        class="form-check-input"
+                                        type="checkbox"
+                                    >
+                                    <label
+                                        class="form-check-label"
+                                        for="av-c-snd-random"
+                                    >Démarrer le fond à un endroit au hasard (s'il est assez long)</label>
+                                </div>
+                            </div>
+                        </div>
                         <div class="form-text">
-                            Les jingles sont des fichiers de la médiathèque, joués tels quels avant et après la chronique.
+                            Musique seule avant la voix, puis baissée de {{ form.sound.duck_db }} dB pendant la voix,
+                            remontée et fondu de sortie. Ces réglages ne concernent que cette chronique.
                         </div>
                     </div>
 
@@ -708,7 +768,7 @@ const tabs = [
     { key: "general", label: "Chronique et voix" },
     { key: "sources", label: "Sources" },
     { key: "text", label: "Texte" },
-    { key: "sound", label: "Fond et habillage" },
+    { key: "sound", label: "Fond musical et son" },
     { key: "publish", label: "Diffusion et génération" },
 ];
 const days = DAYS;
@@ -720,6 +780,23 @@ const sliders = [
 ];
 
 const form = reactive(clone(props.chronicle));
+form.sound = {
+    duck_db: 15, bed_gain_db: 0, intro: 3, outro: 3, fade_in: 1, fade_out: 2, ramp: 0.8,
+    random_start: false, normalize: true, lufs: -14, bitrate: 192, ...(form.sound || {}),
+};
+const soundFields = [
+    { key: "duck_db", label: "Baisse sous la voix (dB)", min: 0, max: 60, step: 0.5 },
+    { key: "bed_gain_db", label: "Volume général du fond (dB)", min: -40, max: 12, step: 0.5 },
+    { key: "intro", label: "Musique seule avant (s)", min: 0, max: 30, step: 0.5 },
+    { key: "outro", label: "Musique seule après (s)", min: 0, max: 30, step: 0.5 },
+    { key: "fade_in", label: "Fondu d'entrée (s)", min: 0, max: 10, step: 0.5 },
+    { key: "fade_out", label: "Fondu de sortie (s)", min: 0, max: 15, step: 0.5 },
+    { key: "ramp", label: "Transition du volume (s)", min: 0.05, max: 5, step: 0.1 },
+    { key: "lufs", label: "Volume cible (LUFS)", min: -30, max: -6, step: 0.5, needsNormalize: true },
+];
+const expectedLength = computed(() => Number(form.sound.intro) + Number(form.target_seconds) + Number(form.sound.outro));
+const bedTooShort = computed(() => form.bed_media && form.bed_media_length
+    && form.bed_media_length < expectedLength.value);
 const originalName = props.chronicle.name;
 const tab = ref("general");
 const saving = ref(false);
