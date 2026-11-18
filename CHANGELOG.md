@@ -1,5 +1,15 @@
 # Changements
 
+## 1.3.2 – 2026-11-18
+
+- **« Masquer l'intervention des métadonnées »** (anciennement « Ne pas changer le titre affiché ») fonctionne vraiment. Le titre et l'artiste ne sont plus transmis à Liquidsoap, en plus du mode jingle :
+  - le serveur de stream garde les métadonnées du morceau précédent ;
+  - AzuraCast ne crée pas de ligne d'historique, donc l'API Now Playing et les widgets continuent d'afficher le morceau précédent.
+
+  L'intervention n'apparaît pas, même grisée, dans l'historique d'AzuraCast : seuls les fichiers de la médiathèque peuvent l'être. Elle reste dans l'historique du plugin. Les clips ne contiennent plus d'étiquettes ID3 titre/artiste : ces informations passent uniquement par Liquidsoap.
+- **Clip coupé après l'intro : vraie correction.** L'indication utilisée en 1.3.1 pour désactiver l'AutoCue était filtrée par AzuraCast, qui n'accepte qu'une liste précise d'indications. Le plugin fournit maintenant lui-même le calage du clip avec les indications autorisées (`azuracast_autocue`, début, fin, fondus) : Liquidsoap n'analyse plus le clip. Le morceau suivant démarre au moment où le fond musical du clip commence son fondu de sortie.
+- « Diffuser maintenant » utilise les mêmes indications.
+
 ## 1.3.1 – 2026-11-17
 
 - **Interventions parfois remplacées par un silence.** Deux causes, corrigées :

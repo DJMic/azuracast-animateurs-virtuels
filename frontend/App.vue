@@ -890,12 +890,15 @@
                                         <label
                                             class="form-check-label"
                                             for="av-hide"
-                                        >Ne pas changer le titre affiché pendant l'intervention (comme un jingle)</label>
+                                        >Masquer l'intervention des métadonnées (comme un jingle)</label>
                                     </div>
                                 </div>
                             </div>
                             <div class="form-text">
                                 Variables possibles : {animateur}, {station}, {heure}…
+                                Si l'intervention est masquée, le serveur de stream et l'API Now Playing gardent le
+                                morceau précédent, et l'intervention n'apparaît pas dans l'historique d'AzuraCast (elle
+                                reste dans l'historique du plugin).
                             </div>
                         </fieldset>
                     </div>

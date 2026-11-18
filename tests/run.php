@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 // Standalone tests for the logic that does not need AzuraCast: php tests/run.php
 
-foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits'] as $class) {
+foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations'] as $class) {
     require __DIR__ . '/../src/Service/' . $class . '.php';
 }
 
+use Plugin\AzuracastAnimateursVirtuels\Service\ClipAnnotations;
 use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
@@ -373,6 +374,21 @@ foreach ([['status' => 'done'], ['status' => 'done', 'reused' => true], ['status
 }
 check('limite : les clips réutilisés ne comptent pas', $statsJobs->todayStats(1, $day), ['generated' => 2, 'reused' => 1]);
 exec('rm -rf ' . escapeshellarg($statsRoot));
+
+// --- Liquidsoap annotations ------------------------------------------------------------------------
+// Keys AzuraCast lets through (AnnotateNextSong::ALLOWED_ANNOTATIONS); any other key is dropped.
+$allowed = ['title', 'artist', 'duration', 'song_id', 'media_id', 'playlist_id', 'jingle_mode', 'request_id', 'sq_id',
+    'liq_amplify', 'azuracast_autocue', 'azuracast_cache_key', 'autocue_cue_in', 'autocue_cue_out', 'autocue_fade_in',
+    'autocue_fade_out', 'autocue_start_next'];
+$shown = ClipAnnotations::build('Léa', 'Radio Test', 26.4, false, 2.0);
+check('annotations : uniquement des clés acceptées par AzuraCast', array_diff(array_keys($shown + ['sq_id' => 1]), $allowed), []);
+check('annotations : titre et artiste affichés', [$shown['title'], $shown['artist'], isset($shown['jingle_mode'])], ['Léa', 'Radio Test', false]);
+check('annotations : calage AutoCue fourni', [$shown['azuracast_autocue'], $shown['autocue_cue_in'], $shown['autocue_cue_out']], ['true', 0.0, 26.4]);
+check('annotations : morceau suivant au fondu du fond', $shown['autocue_start_next'], 24.4);
+$hidden = ClipAnnotations::build('Léa', 'Radio Test', 12.0, true);
+check('annotations masquées : ni titre ni artiste, mode jingle', [$hidden['title'], $hidden['artist'], $hidden['jingle_mode']], ['', '', 'true']);
+check('annotations voix seule : suivant juste avant la fin', $hidden['autocue_start_next'], 11.7);
+check('annotations : silence', ClipAnnotations::build('', '', 0.5, true)['autocue_cue_out'], 0.5);
 
 // --- Real mix, if ffmpeg is installed ------------------------------------------------------------
 if (Shell::which('ffmpeg') !== null) {

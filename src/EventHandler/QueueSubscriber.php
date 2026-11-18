@@ -12,6 +12,7 @@ use App\Event\Radio\AnnotateNextSong;
 use App\Event\Radio\BuildQueue;
 use DateTimeImmutable;
 use DateTimeInterface;
+use Plugin\AzuracastAnimateursVirtuels\Service\ClipAnnotations;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
 use Plugin\AzuracastAnimateursVirtuels\Service\Library;
@@ -293,33 +294,25 @@ final class QueueSubscriber implements EventSubscriberInterface
         } catch (Throwable) {
         }
 
-        $annotations = [
-            'title' => (string)$queue->title,
-            'artist' => (string)$queue->artist,
-            'sq_id' => $queue->id,
-            // The clip already has its own fades and level: AutoCue must not trim it (it took the
-            // quieter voice part for the end of the track and cut the clip after the intro).
-            'liq_disable_autocue' => 'true',
-        ];
-        if (!empty($settings['output']['hide_metadata'])) {
-            $annotations['jingle_mode'] = 'true';
-        }
-
+        $hide = !empty($settings['output']['hide_metadata']);
         if (is_file($uri)) {
-            $annotations['duration'] = (float)$queue->duration;
+            $duration = (float)$queue->duration;
+            $bedFadeOut = 0.0;
             $job = $this->jobs->load((int)$event->getStation()->id, basename($uri, '.mp3'));
-            if (is_array($job) && !empty($job['duration'])) {
-                $annotations['duration'] = (float)$job['duration'];
+            if (is_array($job)) {
+                $duration = !empty($job['duration']) ? (float)$job['duration'] : $duration;
+                $bedFadeOut = !empty($job['bed']) ? (float)($settings['bed']['fade_out'] ?? 0) : 0.0;
             }
+            $annotations = ClipAnnotations::build((string)$queue->title, (string)$queue->artist, $duration, $hide, $bedFadeOut);
         } else {
             $this->logger->warning('Animateurs virtuels : clip pas prêt à temps, intervention remplacée par un silence.', [
                 'station' => $event->getStation()->id,
                 'clip' => basename($uri),
             ]);
             $event->setSongPath(Plugin::silenceFile());
-            $annotations['duration'] = 0.5;
-            $annotations['jingle_mode'] = 'true';
+            $annotations = ClipAnnotations::build('', '', 0.5, true);
         }
+        $annotations['sq_id'] = $queue->id;
 
         $event->addAnnotations($annotations);
     }

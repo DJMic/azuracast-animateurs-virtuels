@@ -270,11 +270,9 @@ final class Generator
         $variables = is_array($job['variables']) ? $job['variables'] : [];
         $mixPath = $this->jobs->dir((int)$station->id, 'tmp') . '/' . $job['id'] . '-mix.mp3';
         try {
-            $metadata = [
-                'title' => PromptBuilder::fill($settings['output']['meta_title'], $variables),
-                'artist' => PromptBuilder::fill($settings['output']['meta_artist'], $variables),
-            ];
-            $metadata = array_map(static fn(string $v): string => str_replace(PromptBuilder::MISSING, '', $v), $metadata);
+            // No title/artist tags in the file: Liquidsoap gets them only through the annotations,
+            // so that "hide metadata" really hides them.
+            $metadata = [];
             $bed = $this->pickBed($station, $settings, $host);
             if ($bed === null) {
                 $job['bed'] = null;

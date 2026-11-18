@@ -16,6 +16,7 @@ use App\Radio\Backend\Liquidsoap\ConfigWriter;
 use App\Radio\Enums\LiquidsoapQueues;
 use DateTimeImmutable;
 use InvalidArgumentException;
+use Plugin\AzuracastAnimateursVirtuels\Service\ClipAnnotations;
 use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\DeepSeek;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
@@ -255,13 +256,14 @@ final class PanelController
 
             $settings = $this->store->read($station);
             $variables = is_array($job['variables'] ?? null) ? $job['variables'] : [];
-            $annotations = array_filter([
-                'title' => str_replace(PromptBuilder::MISSING, '', PromptBuilder::fill($settings['output']['meta_title'], $variables))
+            $annotations = ClipAnnotations::build(
+                str_replace(PromptBuilder::MISSING, '', PromptBuilder::fill($settings['output']['meta_title'], $variables))
                     ?: (string)$job['host_name'],
-                'artist' => str_replace(PromptBuilder::MISSING, '', PromptBuilder::fill($settings['output']['meta_artist'], $variables)),
-                'duration' => (float)($job['duration'] ?? 0) ?: null,
-                'jingle_mode' => !empty($settings['output']['hide_metadata']) ? 'true' : null,
-            ], static fn(mixed $v): bool => $v !== null && $v !== '');
+                str_replace(PromptBuilder::MISSING, '', PromptBuilder::fill($settings['output']['meta_artist'], $variables)),
+                (float)($job['duration'] ?? 0),
+                !empty($settings['output']['hide_metadata']),
+                !empty($job['bed']) ? (float)$settings['bed']['fade_out'] : 0.0
+            );
 
             $backend->enqueue(
                 $station,
