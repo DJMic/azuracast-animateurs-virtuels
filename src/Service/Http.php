@@ -21,7 +21,9 @@ final class Http
         string $url,
         array $headers = [],
         ?string $body = null,
-        int $timeout = 60
+        int $timeout = 60,
+        bool $followRedirects = false,
+        int $maxBytes = 0
     ): array {
         $curl = curl_init($url);
         if ($curl === false) {
@@ -38,7 +40,11 @@ final class Http
             CURLOPT_HTTPHEADER => $lines,
             CURLOPT_CONNECTTIMEOUT => 15,
             CURLOPT_TIMEOUT => $timeout,
-            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_FOLLOWLOCATION => $followRedirects,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_ENCODING => '',
             CURLOPT_USERAGENT => 'AzuraCast-AnimateursVirtuels/' . Plugin::version(),
             CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$responseHeaders): int {
                 $parts = explode(':', $line, 2);
@@ -52,11 +58,23 @@ final class Http
         if ($body !== null) {
             curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
         }
+        $buffer = '';
+        if ($maxBytes > 0) {
+            // Keeps at most $maxBytes: a large page is cut, not refused.
+            curl_setopt($curl, CURLOPT_WRITEFUNCTION, static function ($ch, string $chunk) use (&$buffer, $maxBytes): int {
+                $buffer .= $chunk;
+
+                return strlen($buffer) > $maxBytes ? 0 : strlen($chunk);
+            });
+        }
 
         $result = curl_exec($curl);
         $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         $error = curl_error($curl);
 
+        if ($maxBytes > 0 && ($result !== false || curl_errno($curl) === CURLE_WRITE_ERROR)) {
+            $result = substr($buffer, 0, $maxBytes);
+        }
         if ($result === false) {
             throw new RuntimeException('Connexion impossible à ' . parse_url($url, PHP_URL_HOST) . ' : ' . $error);
         }

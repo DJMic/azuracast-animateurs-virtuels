@@ -69,6 +69,52 @@ final class Mixer
     }
 
     /**
+     * Joins files end to end (opening jingle + chronicle + closing jingle), in one mp3.
+     *
+     * @param string[] $paths
+     *
+     * @return float duration of the result, in seconds
+     */
+    public function concat(array $paths, string $outPath, int $bitrate, array $metadata = []): float
+    {
+        $args = self::concatArguments($this->ffmpeg(), $paths, $outPath, $bitrate, $metadata);
+        $result = Shell::run($args, 300);
+        if ($result['code'] !== 0 || !is_file($outPath) || filesize($outPath) < 1000) {
+            @unlink($outPath);
+            throw new RuntimeException('Assemblage ffmpeg impossible : ' . trim(mb_substr($result['err'], -600)));
+        }
+
+        return $this->duration($outPath);
+    }
+
+    /**
+     * @param string[] $paths
+     *
+     * @return string[]
+     */
+    public static function concatArguments(string $ffmpeg, array $paths, string $outPath, int $bitrate, array $metadata = []): array
+    {
+        $args = [$ffmpeg, '-hide_banner', '-nostdin', '-y'];
+        $graph = '';
+        $labels = '';
+        foreach (array_values($paths) as $i => $path) {
+            array_push($args, '-i', $path);
+            $graph .= '[' . $i . ':a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a' . $i . '];';
+            $labels .= '[a' . $i . ']';
+        }
+        $graph .= $labels . 'concat=n=' . count($paths) . ':v=0:a=1[out]';
+        array_push($args, '-filter_complex', $graph, '-map', '[out]', '-map_metadata', '-1');
+        foreach ($metadata as $key => $value) {
+            if ($value !== '') {
+                array_push($args, '-metadata', $key . '=' . $value);
+            }
+        }
+        array_push($args, '-c:a', 'libmp3lame', '-b:a', $bitrate . 'k', '-ar', '44100', '-id3v2_version', '3', '-f', 'mp3', $outPath);
+
+        return $args;
+    }
+
+    /**
      * ffmpeg command line (pure function, tested).
      *
      * @return string[]

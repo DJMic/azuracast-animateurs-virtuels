@@ -64,6 +64,10 @@ final class PluginSubscriber implements EventSubscriberInterface
                 $group->post('/check/deepseek', PanelController::class . ':checkDeepSeekAction');
                 $group->post('/check/elevenlabs', PanelController::class . ':checkElevenLabsAction');
                 $group->get('/credits', PanelController::class . ':creditsAction');
+                $group->post('/chronicles/sources', PanelController::class . ':chronicleSourcesAction');
+                $group->post('/chronicles/{chronicle_id}/run', PanelController::class . ':chronicleRunAction');
+                $group->post('/weather/geocode', PanelController::class . ':geocodeAction');
+                $group->get('/media/search', PanelController::class . ':mediaSearchAction');
                 $group->post('/preview', PanelController::class . ':previewAction');
                 $group->get('/library', PanelController::class . ':libraryAction');
                 $group->get('/library/{host_id}/{entry_id}/audio', PanelController::class . ':libraryAudioAction');

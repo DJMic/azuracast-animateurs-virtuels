@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 // Standalone tests for the logic that does not need AzuraCast: php tests/run.php
 
-foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations'] as $class) {
+foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations', 'ChronicleSettings', 'Weather', 'Sources'] as $class) {
     require __DIR__ . '/../src/Service/' . $class . '.php';
 }
 
+use Plugin\AzuracastAnimateursVirtuels\Service\ChronicleSettings;
 use Plugin\AzuracastAnimateursVirtuels\Service\ClipAnnotations;
 use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
@@ -18,6 +19,8 @@ use Plugin\AzuracastAnimateursVirtuels\Service\Planner;
 use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
 use Plugin\AzuracastAnimateursVirtuels\Service\Settings;
 use Plugin\AzuracastAnimateursVirtuels\Service\Shell;
+use Plugin\AzuracastAnimateursVirtuels\Service\Sources;
+use Plugin\AzuracastAnimateursVirtuels\Service\Weather;
 
 $failures = 0;
 function check(string $label, mixed $actual, mixed $expected): void
@@ -389,6 +392,102 @@ $hidden = ClipAnnotations::build('Léa', 'Radio Test', 12.0, true);
 check('annotations masquées : ni titre ni artiste, mode jingle', [$hidden['title'], $hidden['artist'], $hidden['jingle_mode']], ['', '', 'true']);
 check('annotations voix seule : suivant juste avant la fin', $hidden['autocue_start_next'], 11.7);
 check('annotations : silence', ClipAnnotations::build('', '', 0.5, true)['autocue_cue_out'], 0.5);
+
+// --- Chronicles -----------------------------------------------------------------------------------
+$chron = ChronicleSettings::defaults();
+$chron['name'] = 'Infos régionales';
+$chron['voice_mode'] = 'host';
+$chron['host_id'] = 'leahostid01';
+$chron['sources'] = [['type' => 'url', 'url' => 'https://www.example.org/rss.xml'], ['type' => 'weather', 'location' => 'Namur']];
+$chron['schedule'] = ['days' => [1, 2, 3, 4, 5], 'times' => ['07:30', '06:30']];
+$valid = ChronicleSettings::validate($chron, ['leahostid01'], ['acc1acc1']);
+check('chronique : dossier par défaut créé à partir du nom', $valid['folder'], 'Chroniques/Infos regionales');
+check('chronique : heures triées', $valid['schedule']['times'], ['06:30', '07:30']);
+check('chronique : deux sources', array_column($valid['sources'], 'type'), ['url', 'weather']);
+check('chronique : nom de fichier', ChronicleSettings::fileName('Météo & trafic', $at('2026-11-18 06:30')), 'Meteo_trafic_2026-11-18_0630.mp3');
+throws('chronique : animateur inconnu', static fn() => ChronicleSettings::validate($chron, ['autre000001'], []), 'animateur');
+$own = $chron;
+$own['voice_mode'] = 'own';
+$own['voice_id'] = '';
+throws('chronique : voix propre sans Voice ID', static fn() => ChronicleSettings::validate($own, [], ['acc1acc1']), 'Voice ID');
+$own['voice_id'] = 'AbCdEf12345';
+check('chronique : voix propre, premier compte par défaut', ChronicleSettings::validate($own, [], ['acc1acc1'])['account_id'], 'acc1acc1');
+$bad = $chron;
+$bad['sources'] = [['type' => 'url', 'url' => 'ftp://exemple']];
+throws('chronique : adresse invalide', static fn() => ChronicleSettings::validate($bad, ['leahostid01'], []), 'adresse');
+$bad = $chron;
+$bad['sources'] = [];
+throws('chronique : au moins une source', static fn() => ChronicleSettings::validate($bad, ['leahostid01'], []), 'source');
+$bad = $chron;
+$bad['folder'] = 'Chroniques/../Secret';
+throws('chronique : dossier avec ..', static fn() => ChronicleSettings::validate($bad, ['leahostid01'], []), 'dossier');
+$bad = $chron;
+$bad['folder'] = '/Emissions//Matin/';
+check('chronique : dossier nettoyé', ChronicleSettings::validate($bad, ['leahostid01'], [])['folder'], 'Emissions/Matin');
+$bad = $chron;
+$bad['schedule'] = ['days' => [1], 'times' => ['25:00']];
+throws('chronique : heure invalide', static fn() => ChronicleSettings::validate($bad, ['leahostid01'], []), 'heure');
+check('chronique : planifiée à 6h30', ChronicleSettings::dueSlot($valid, $at('2026-11-18 06:31'), []), '2026-11-18 06:30');
+check('chronique : pas deux fois', ChronicleSettings::dueSlot($valid, $at('2026-11-18 06:35'), ['2026-11-18 06:30']), null);
+check('chronique : pas avant l\'heure', ChronicleSettings::dueSlot($valid, $at('2026-11-18 06:29'), []), null);
+check('chronique : rattrapage jusqu\'à 30 min', ChronicleSettings::dueSlot($valid, $at('2026-11-18 06:59'), []), '2026-11-18 06:30');
+check('chronique : pas le week-end', ChronicleSettings::dueSlot($valid, $at('2026-11-21 06:31'), []), null);
+$disabled = $valid;
+$disabled['enabled'] = false;
+check('chronique : désactivée', ChronicleSettings::dueSlot($disabled, $at('2026-11-18 06:31'), []), null);
+
+$withChron = $input;
+$withChron['chronicles'] = [$chron];
+throws('chronique : animateur sans voix refusé', static fn() => Settings::fromInput($withChron, []), 'animateur');
+$savedHosts = Settings::fromInput($input, []);
+$chron['host_id'] = $savedHosts['hosts'][0]['id'];
+$withChron = $savedHosts;
+$withChron['chronicles'] = [$chron, $chron];
+throws('chronique : noms en double', static fn() => Settings::fromInput($withChron, $savedHosts), 'Deux chroniques');
+$withChron['chronicles'] = [$chron];
+$withChronSaved = Settings::fromInput($withChron, $savedHosts);
+check('chronique enregistrée', $withChronSaved['chronicles'][0]['name'], 'Infos régionales');
+check('voix de la chronique = celle de l\'animateur', ChronicleSettings::voice($withChronSaved, $withChronSaved['chronicles'][0])['voice_id'], $lea['voice_id'] ?: '21m00Tcm4TlvDq8ikWAM');
+
+$sources = [
+    ['label' => 'Flux', 'url' => 'https://ex.org/rss', 'ok' => true, 'text' => '- Grève à la SNCB'],
+    ['label' => 'Panne', 'url' => 'https://ex.org/x', 'ok' => false, 'text' => ''],
+];
+$cvars = PromptBuilder::variables(['name' => 'Léa', 'target_seconds' => 60], 'Radio Test', 'français', $at('2026-11-18 06:30')) + ['chronique' => 'Infos'];
+$cm = PromptBuilder::chronicleMessages($withChronSaved, $withChronSaved['chronicles'][0], ['personality' => 'Dynamique.'], $cvars, $sources);
+check('chronique : sources lues seulement', [str_contains($cm[1]['content'], 'Grève à la SNCB'), str_contains($cm[1]['content'], 'Panne')], [true, false]);
+check('chronique : consigne « rien inventer » et réponse vide', str_contains($cm[0]['content'], 'N\'invente rien') && str_contains($cm[0]['content'], PromptBuilder::NO_CONTENT), true);
+check('chronique : date du jour et nom', str_contains($cm[0]['content'], 'mercredi 18 novembre') && str_contains($cm[0]['content'], '« Infos »'), true);
+check('chronique : style de la voix', str_contains($cm[0]['content'], 'Dynamique.'), true);
+
+$feedNow = $at('2026-11-18 09:00');
+$rss = '<?xml version="1.0" encoding="ISO-8859-1"?><rss version="2.0"><channel>'
+    . '<item><title>Grève à la SNCB</title><description><![CDATA[<p>Trains perturb&eacute;s</p>]]></description><pubDate>Wed, 18 Nov 2026 07:30:00 +0100</pubDate></item>'
+    . '<item><title>Ancien</title><description>vieux</description><pubDate>Mon, 16 Nov 2026 07:30:00 +0100</pubDate></item></channel></rss>';
+$feed = Sources::extract(mb_convert_encoding($rss, 'ISO-8859-1', 'UTF-8'), 'application/rss+xml; charset=ISO-8859-1', 24, $feedNow);
+check('source RSS : articles récents seulement, accents', [$feed['kind'], $feed['items'], $feed['text']], ['rss', 1, '- [18/11 07:30] Grève à la SNCB : Trains perturbés']);
+check('source RSS : sans filtre de fraîcheur', Sources::extract(mb_convert_encoding($rss, 'ISO-8859-1', 'UTF-8'), 'text/xml', 0, $feedNow)['items'], 2);
+$atom = '<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Agenda</title><summary>Concert samedi</summary><updated>2026-11-18T08:00:00Z</updated></entry></feed>';
+check('source Atom', Sources::extract($atom, 'application/atom+xml', 24, $feedNow)['text'], '- [18/11 09:00] Agenda : Concert samedi');
+$page = '<html><head><title>Agenda</title><meta name="description" content="Les sorties"></head><body><nav>Menu</nav>'
+    . '<main><h1>Ce week-end</h1><p>Concert à Namur.</p><script>x()</script><ul><li>Marché de Noël</li></ul></main><footer>© 2026</footer></body></html>';
+check('source page web : texte principal sans menus ni scripts', Sources::extract($page, 'text/html; charset=utf-8', 24, $feedNow)['text'],
+    "Agenda — Les sorties\n\nCe week-end\nConcert à Namur.\nMarché de Noël");
+$weatherText = Weather::describe(['current' => ['temperature_2m' => 6.4, 'apparent_temperature' => 3.1, 'weather_code' => 61, 'wind_speed_10m' => 18],
+    'daily' => ['time' => ['2026-11-18'], 'weather_code' => [61], 'temperature_2m_max' => [9.2], 'temperature_2m_min' => [4.1],
+        'precipitation_probability_max' => [80], 'precipitation_sum' => [4.25], 'wind_speed_10m_max' => [30],
+        'sunrise' => ['2026-11-18T08:05'], 'sunset' => ['2026-11-18T16:45']]], 'Namur');
+check('météo : conditions en français', str_contains($weatherText, 'pluie faible, 6 °C (ressenti 3 °C)') && str_contains($weatherText, 'maximum 9 °C'), true);
+$concat = Mixer::concatArguments('ffmpeg', ['a.mp3', 'b.mp3', 'c.mp3'], 'o.mp3', 192, ['title' => 'Infos']);
+check('assemblage des jingles', str_contains(implode(' ', $concat), '[a0][a1][a2]concat=n=3:v=0:a=1[out]'), true);
+
+$chronJobsRoot = sys_get_temp_dir() . '/av-chron-' . bin2hex(random_bytes(4));
+mkdir($chronJobsRoot);
+$chronJobs = new Jobs($chronJobsRoot);
+$chronJobs->create(1, $day, ['kind' => 'chronicle', 'status' => 'done']);
+$chronJobs->create(1, $day, ['kind' => 'between', 'status' => 'done']);
+check('limite quotidienne : chroniques non comptées', $chronJobs->countToday(1, $day), 1);
+exec('rm -rf ' . escapeshellarg($chronJobsRoot));
 
 // --- Real mix, if ffmpeg is installed ------------------------------------------------------------
 if (Shell::which('ffmpeg') !== null) {

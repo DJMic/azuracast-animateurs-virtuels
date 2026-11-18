@@ -16,19 +16,25 @@ use App\Radio\Backend\Liquidsoap\ConfigWriter;
 use App\Radio\Enums\LiquidsoapQueues;
 use DateTimeImmutable;
 use InvalidArgumentException;
+use Plugin\AzuracastAnimateursVirtuels\Service\ChronicleGenerator;
+use Plugin\AzuracastAnimateursVirtuels\Service\ChronicleSettings;
 use Plugin\AzuracastAnimateursVirtuels\Service\ClipAnnotations;
 use Plugin\AzuracastAnimateursVirtuels\Service\Credits;
 use Plugin\AzuracastAnimateursVirtuels\Service\DeepSeek;
 use Plugin\AzuracastAnimateursVirtuels\Service\ElevenLabs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
+use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
 use Plugin\AzuracastAnimateursVirtuels\Service\Library;
+use Plugin\AzuracastAnimateursVirtuels\Service\MediaLibrary;
 use Plugin\AzuracastAnimateursVirtuels\Service\Planner;
 use Plugin\AzuracastAnimateursVirtuels\Service\Plugin;
 use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
 use Plugin\AzuracastAnimateursVirtuels\Service\Settings;
 use Plugin\AzuracastAnimateursVirtuels\Service\Shell;
+use Plugin\AzuracastAnimateursVirtuels\Service\Sources;
 use Plugin\AzuracastAnimateursVirtuels\Service\Store;
+use Plugin\AzuracastAnimateursVirtuels\Service\Weather;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
 
@@ -41,6 +47,11 @@ final class PanelController
         private readonly Jobs $jobs,
         private readonly Library $library,
         private readonly Generator $generator,
+        private readonly ChronicleGenerator $chronicles,
+        private readonly MediaLibrary $mediaLibrary,
+        private readonly Sources $sources,
+        private readonly Weather $weather,
+        private readonly Launcher $launcher,
         private readonly DeepSeek $deepSeek,
         private readonly ElevenLabs $elevenLabs,
         private readonly Credits $credits,
@@ -94,6 +105,9 @@ final class PanelController
                 'variables' => PromptBuilder::VARIABLES,
                 'default_system_prompt' => Settings::DEFAULT_SYSTEM_PROMPT,
                 'default_host' => Settings::defaultHost(),
+                'default_chronicle' => ChronicleSettings::defaults(),
+                'default_source' => ChronicleSettings::defaultSource(),
+                'chronicle_files' => $this->chronicleFiles($station),
                 'status' => $this->status($station),
             ]);
         });
@@ -110,7 +124,26 @@ final class PanelController
             foreach ($settings['hosts'] as $host) {
                 $this->checkPlaylist($station, $host['bed_playlist_id']);
             }
-            if ($settings['enabled'] && !$this->jobs->isWritable()) {
+            foreach ($settings['chronicles'] as &$chronicle) {
+                $this->checkPlaylist($station, $chronicle['bed_playlist_id']);
+                $this->checkPlaylist($station, $chronicle['playlist_id']);
+                // Weather sources: the place is located once, when saving.
+                foreach ($chronicle['sources'] as &$source) {
+                    if ($source['type'] === 'weather' && $source['latitude'] === null) {
+                        try {
+                            $place = $this->weather->geocode($source['location']);
+                        } catch (Throwable $e) {
+                            throw new InvalidArgumentException('Chronique « ' . $chronicle['name'] . ' » : ' . $e->getMessage());
+                        }
+                        $source['latitude'] = $place['latitude'];
+                        $source['longitude'] = $place['longitude'];
+                        $source['location_label'] = $place['label'];
+                    }
+                }
+                unset($source);
+            }
+            unset($chronicle);
+            if (($settings['enabled'] || $settings['chronicles'] !== []) && !$this->jobs->isWritable()) {
                 throw new InvalidArgumentException(
                     'Le dossier de données du plugin n\'est pas accessible en écriture. Relancez bin/setup.sh.'
                 );
@@ -468,6 +501,105 @@ final class PanelController
         });
     }
 
+    /** Generates a chronicle now, in the background (follow it in the history). */
+    public function chronicleRunAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response, $params): ResponseInterface {
+            $this->verifyCsrf($request);
+            $station = $request->getStation();
+            $chronicle = $this->findChronicle($this->store->read($station), (string)($params['chronicle_id'] ?? ''));
+            foreach ($this->jobs->list((int)$station->id, 50) as $job) {
+                if (($job['chronicle_id'] ?? '') === $chronicle['id'] && in_array($job['status'] ?? '', ['pending', 'running'], true)) {
+                    throw new InvalidArgumentException('Cette chronique est déjà en cours de génération.');
+                }
+            }
+            $job = $this->chronicles->queue($station, $chronicle, 'manual');
+            $this->launcher->start((int)$station->id, (string)$job['id'], 0);
+
+            return $this->json($response, [
+                'success' => true,
+                'message' => 'Génération de « ' . $chronicle['name'] . ' » lancée. Suivez-la dans l\'onglet Historique '
+                    . '(une à deux minutes selon la longueur).',
+                'job' => $this->jobForDisplay($job),
+            ]);
+        });
+    }
+
+    /** Reads the sources of a chronicle of the form (not saved yet) and shows what was found. */
+    public function chronicleSourcesAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $this->verifyCsrf($request);
+            $station = $request->getStation();
+            $input = $this->body($request)['chronicle'] ?? [];
+            $input = is_array($input) ? $input : [];
+            $input['enabled'] = false; // no completeness check for a test
+            $input['name'] = trim((string)($input['name'] ?? '')) ?: 'Test';
+            $chronicle = ChronicleSettings::validate($input, [], []);
+            if ($chronicle['sources'] === []) {
+                throw new InvalidArgumentException('Ajoutez d\'abord une source.');
+            }
+            @set_time_limit(180);
+            $now = new DateTimeImmutable('now', $station->getTimezoneObject());
+            $results = array_map(static fn(array $s): array => [
+                'label' => $s['label'],
+                'url' => $s['url'],
+                'ok' => $s['ok'],
+                'kind' => $s['kind'],
+                'items' => $s['items'],
+                'chars' => mb_strlen($s['text']),
+                'excerpt' => mb_substr($s['text'], 0, 1500),
+                'error' => $s['error'],
+            ], $this->sources->readAll($chronicle, $now));
+
+            return $this->json($response, ['results' => $results]);
+        });
+    }
+
+    /** Locates a place for a weather source. */
+    public function geocodeAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $this->verifyCsrf($request);
+            $place = trim((string)($this->body($request)['location'] ?? ''));
+            if ($place === '') {
+                throw new InvalidArgumentException('Indiquez une ville.');
+            }
+            try {
+                $found = $this->weather->geocode($place);
+            } catch (Throwable $e) {
+                throw new InvalidArgumentException($e->getMessage());
+            }
+
+            return $this->json($response, ['place' => $found]);
+        });
+    }
+
+    /** Media files of the station matching a search (opening/closing jingles). */
+    public function mediaSearchAction(ServerRequest $request, Response $response, array $params): ResponseInterface
+    {
+        return $this->guard($response, function () use ($request, $response): ResponseInterface {
+            $station = $request->getStation();
+            $query = trim((string)($request->getQueryParams()['q'] ?? ''));
+            $rows = $this->em->createQuery(
+                <<<'DQL'
+                    SELECT sm.path, sm.title, sm.artist, sm.length FROM App\Entity\StationMedia sm
+                    WHERE sm.storage_location = :storage AND (sm.path LIKE :q OR sm.title LIKE :q OR sm.artist LIKE :q)
+                    ORDER BY sm.path ASC
+                DQL
+            )->setParameter('storage', $station->media_storage_location)
+                ->setParameter('q', '%' . addcslashes($query, '%_') . '%')
+                ->setMaxResults(40)
+                ->getArrayResult();
+
+            return $this->json($response, ['files' => array_map(static fn(array $r): array => [
+                'path' => $r['path'],
+                'label' => trim(($r['artist'] ? $r['artist'] . ' – ' : '') . ($r['title'] ?? '')) ?: basename((string)$r['path']),
+                'length' => round((float)$r['length'], 1),
+            ], $rows)]);
+        });
+    }
+
     // --- helpers --------------------------------------------------------------------------------
 
     private function status(Station $station): array
@@ -494,6 +626,36 @@ final class PanelController
                 'end' => $onAir['slot']['end'],
             ] : null,
         ];
+    }
+
+    private function findChronicle(array $settings, string $id): array
+    {
+        foreach ($settings['chronicles'] as $chronicle) {
+            if ($chronicle['id'] === $id) {
+                return $chronicle;
+            }
+        }
+        throw new InvalidArgumentException('Chronique introuvable : enregistrez d\'abord vos réglages.');
+    }
+
+    /** Last file in the media library for each chronicle. */
+    private function chronicleFiles(Station $station): array
+    {
+        $out = [];
+        if (!$this->jobs->isWritable()) {
+            return $out;
+        }
+        foreach ($this->store->read($station)['chronicles'] as $chronicle) {
+            try {
+                $files = $this->mediaLibrary->registry($station, $chronicle['id']);
+            } catch (Throwable) {
+                $files = [];
+            }
+            usort($files, static fn(array $a, array $b): int => (int)$b['created_at'] <=> (int)$a['created_at']);
+            $out[$chronicle['id']] = ['count' => count($files), 'latest' => $files[0] ?? null];
+        }
+
+        return $out;
     }
 
     private function jobForDisplay(array $job): array

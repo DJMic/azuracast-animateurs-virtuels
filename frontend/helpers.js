@@ -18,6 +18,7 @@ export const KINDS = {
     between: "Entre deux morceaux",
     fixed: "Heure fixe",
     test: "Test",
+    chronicle: "Chronique",
 };
 
 export const STATUSES = {
@@ -123,6 +124,11 @@ export function contextVariables(text) {
 
 export function formatTimestamp(seconds) {
     return seconds ? formatDateTime(new Date(seconds * 1000).toISOString()) : "";
+}
+
+export function describeSchedule(schedule) {
+    if (!schedule.times.length) return "Manuelle uniquement";
+    return `${describeDays(schedule.days)} à ${schedule.times.join(", ")}`;
 }
 
 export function formatNumber(value) {

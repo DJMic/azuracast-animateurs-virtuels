@@ -141,6 +141,57 @@ final class PromptBuilder
         ];
     }
 
+    /** Answer DeepSeek must give when the sources hold nothing usable. */
+    public const string NO_CONTENT = 'AUCUN_CONTENU';
+
+    public const string CHRONICLE_SYSTEM_PROMPT = <<<'TXT'
+        Tu es {animateur}, chroniqueur ou chroniqueuse de la radio {station}. Tu présentes la chronique « {chronique} », en {langue}. Nous sommes le {jour} {date}, il est {heure}.
+
+        Règles à respecter :
+        - Utilise uniquement les informations des sources fournies. N'invente rien : aucun fait, chiffre, nom ou date absent des sources.
+        - Reformule avec tes propres mots, ne recopie pas les phrases des sources.
+        - Tiens compte de la date du jour : une information datée qui est dépassée ne doit pas être présentée comme à venir.
+        - Écris uniquement le texte qui sera lu à voix haute : pas de titre, pas de liste, pas d'adresse web, pas d'emoji.
+        - Environ {mots} mots, soit à peu près {duree} secondes de parole. Commence par une courte introduction et termine par une phrase de conclusion.
+        - Si les sources ne contiennent aucune information utile pour cette chronique, réponds uniquement : AUCUN_CONTENU
+        TXT;
+
+    /**
+     * Messages for a chronicle: the rules, the style, the request and the sources' text.
+     *
+     * @param array<int, array{label: string, url: string, ok: bool, text: string}> $sources
+     */
+    public static function chronicleMessages(array $settings, array $chronicle, array $voice, array $variables, array $sources): array
+    {
+        $system = self::fill(self::CHRONICLE_SYSTEM_PROMPT, $variables);
+        if (!empty($settings['radio_style'])) {
+            $system .= "\n\n" . self::radioGuidelines((string)($settings['elevenlabs']['model_id'] ?? ''));
+        }
+        $style = trim(implode("\n", array_filter([
+            trim((string)($voice['personality'] ?? '')),
+            trim((string)($chronicle['style'] ?? '')),
+        ])));
+        if ($style !== '') {
+            $system .= "\n\nTon style :\n" . self::fill($style, $variables);
+        }
+
+        $user = self::fill((string)$chronicle['prompt'], $variables) . "\n\nSources :";
+        $n = 0;
+        foreach ($sources as $source) {
+            if (empty($source['ok'])) {
+                continue;
+            }
+            $n++;
+            $user .= "\n\n### Source " . $n . ' : ' . $source['label'] . ($source['url'] !== '' ? ' (' . $source['url'] . ')' : '')
+                . "\n" . trim((string)$source['text']);
+        }
+
+        return [
+            ['role' => 'system', 'content' => $system],
+            ['role' => 'user', 'content' => $user],
+        ];
+    }
+
     /** Eleven v3 and v4 (and their variants) read [audio tags] and ignore SSML break tags. */
     public static function supportsAudioTags(string $model): bool
     {

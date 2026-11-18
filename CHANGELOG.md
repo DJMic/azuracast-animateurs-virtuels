@@ -1,5 +1,19 @@
 # Changements
 
+## 1.4.0 – 2026-11-18
+
+- **Chroniques** : infos, agenda, météo, horoscope… autant que vous voulez par station.
+  - **Sources** : adresses web, flux RSS/Atom (articles des dernières X heures) ou météo Open-Meteo par ville, avec un bouton « Tester les sources ».
+  - **Écriture** : DeepSeek écrit uniquement à partir des sources, sans rien inventer. Si les sources sont illisibles ou vides, rien n'est publié.
+  - **Voix** : celle d'un animateur ou une voix propre (compte ElevenLabs, Voice ID et réglages).
+  - **Mixage** : fond musical (celui de la station ou une playlist au choix), jingles d'ouverture et de fermeture pris dans la médiathèque.
+  - **Enregistrement** dans les médias de la station, local ou S3, dans un dossier créé automatiquement (`Chroniques/<nom>/` par défaut), avec un titre et un artiste.
+  - **Playlist** : la nouvelle version est ajoutée à la playlist choisie et la précédente en est retirée.
+  - **Nettoyage** : suppression des anciennes versions après X jours, jamais de la plus récente.
+  - **Génération** planifiée (jours et heures) ou manuelle (« Générer maintenant »), suivie dans l'historique (sources lues, texte, écoute, fichier créé).
+- **Nouvelle organisation de la page** : Interventions, Chroniques, Services IA (commun), Historique (avec un filtre).
+- Les chroniques ne comptent pas dans la limite quotidienne des interventions.
+
 ## 1.3.2 – 2026-11-18
 
 - **« Masquer l'intervention des métadonnées »** (anciennement « Ne pas changer le titre affiché ») fonctionne vraiment. Le titre et l'artiste ne sont plus transmis à Liquidsoap, en plus du mode jingle :

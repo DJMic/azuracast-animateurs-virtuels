@@ -133,6 +133,29 @@ Les interventions apparaissent dans la **file d'attente** d'AzuraCast (Diffusion
 - **En cas de problème** (service indisponible, crédit épuisé…), l'intervention est retirée de la file : la musique continue normalement. Si un clip n'est pas prêt au moment de la diffusion, une demi-seconde de silence est diffusée à la place. L'erreur est visible dans l'historique.
 - **Fondu enchaîné.** Le fondu enchaîné d'AzuraCast s'applique aussi aux interventions. Avec la musique seule avant et après la voix (3 s par défaut), la voix n'est jamais coupée.
 
+## Chroniques (depuis la version 1.4.0)
+
+La page est organisée en quatre parties :
+- **Interventions** : les animateurs entre les morceaux ;
+- **Chroniques** ;
+- **Services IA** : clés et crédits, communs aux deux ;
+- **Historique** : interventions et chroniques, avec un filtre.
+
+Une chronique (infos, agenda, météo, horoscope…) est produite en cinq étapes :
+
+1. **Lecture des sources.** Le plugin lit les adresses indiquées (10 au maximum) :
+   - **flux RSS/Atom** : c'est le plus fiable. Seuls les articles des dernières X heures sont gardés, 24 par défaut ;
+   - **pages web** : le texte principal est extrait, sans les menus ni les scripts. Certains sites bloquent les robots ou se construisent en JavaScript : le bouton « Tester les sources » montre ce qui est réellement lu ;
+   - **météo** : prévisions d'Open-Meteo pour une ville. Ce service est gratuit et sans clé, mais réservé à un usage non commercial.
+2. **Écriture.** DeepSeek écrit le texte uniquement à partir des sources, avec la date du jour et la règle de ne rien inventer. Si aucune source n'est lisible, ou si les sources ne contiennent rien d'utile, rien n'est publié et la version précédente reste en place.
+3. **Voix et mixage.** ElevenLabs lit le texte avec la voix d'un animateur ou une voix propre à la chronique. La voix est mixée sur un fond musical avec les réglages de « Fond musical et son », puis un jingle d'ouverture et/ou de fermeture de la médiathèque peut être ajouté.
+4. **Enregistrement dans les médias.** Le fichier est enregistré dans `Chroniques/<nom>/` (dossier modifiable, créé s'il n'existe pas), par exemple `Meteo_2026-11-18_0630.mp3`, avec un titre et un artiste. Le plugin utilise le même mécanisme qu'un envoi depuis AzuraCast : il fonctionne avec un stockage local comme avec un stockage distant S3.
+5. **Playlist et nettoyage.** Le fichier est ajouté à la playlist choisie et la version précédente en est retirée : la playlist ne contient toujours que la plus récente. Programmez cette playlist avec le planificateur d'AzuraCast. Les anciennes versions sont supprimées des médias après X jours (0 = jamais). La plus récente n'est jamais supprimée, et le plugin ne touche qu'aux fichiers qu'il a créés.
+
+La génération se fait aux jours et heures choisis pour chaque chronique, ou avec le bouton « Générer maintenant ». Prévoyez-la quelques minutes avant l'heure de diffusion. Les chroniques ne comptent pas dans la limite quotidienne des interventions.
+
+**Attention aux crédits ElevenLabs** : une minute de chronique fait environ 900 caractères. Une chronique quotidienne d'une minute consomme donc environ 27 000 crédits par mois.
+
 ## Bibliothèque : moins d'appels aux API avec le temps
 
 Chaque intervention coûte un appel à DeepSeek et, surtout, des caractères ElevenLabs. La bibliothèque permet de réutiliser des voix déjà enregistrées.

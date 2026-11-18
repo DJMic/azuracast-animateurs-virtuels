@@ -70,7 +70,10 @@
                     </div>
 
                     <div class="d-flex flex-wrap align-items-center gap-4">
-                        <div class="form-check form-switch fs-5 mb-0">
+                        <div
+                            v-show="section === 'interventions'"
+                            class="form-check form-switch fs-5 mb-0"
+                        >
                             <input
                                 id="av-enabled"
                                 v-model="settings.enabled"
@@ -81,7 +84,7 @@
                             <label
                                 class="form-check-label"
                                 for="av-enabled"
-                            >Activer les animateurs virtuels sur cette station</label>
+                            >Activer les interventions sur cette station</label>
                         </div>
                         <div class="text-body-secondary">
                             <template v-if="status.on_air">
@@ -122,8 +125,33 @@
 
                 <div class="card-body pt-0">
                     <ul
+                        class="nav nav-pills mb-3"
+                        role="tablist"
+                        aria-label="Parties du plugin"
+                    >
+                        <li
+                            v-for="sec in sections"
+                            :key="sec.key"
+                            class="nav-item"
+                            role="presentation"
+                        >
+                            <button
+                                type="button"
+                                class="nav-link"
+                                :class="{ active: section === sec.key }"
+                                role="tab"
+                                :aria-selected="section === sec.key"
+                                @click="openSection(sec.key)"
+                            >
+                                {{ sec.label }}
+                            </button>
+                        </li>
+                    </ul>
+                    <ul
+                        v-show="section === 'interventions'"
                         class="nav nav-tabs"
                         role="tablist"
+                        aria-label="Interventions"
                     >
                         <li
                             v-for="t in tabs"
@@ -147,7 +175,7 @@
 
                 <!-- Animateurs -->
                 <div
-                    v-show="tab === 'hosts'"
+                    v-show="section === 'interventions' && tab === 'hosts'"
                     class="card-body pt-0"
                 >
                     <div class="buttons mb-3">
@@ -287,7 +315,7 @@
 
                 <!-- Services IA -->
                 <div
-                    v-show="tab === 'services'"
+                    v-show="section === 'services'"
                     class="card-body pt-0"
                 >
                     <div class="row g-4">
@@ -614,7 +642,7 @@
 
                 <!-- Fond musical & son -->
                 <div
-                    v-show="tab === 'sound'"
+                    v-show="section === 'interventions' && tab === 'sound'"
                     class="card-body pt-0"
                 >
                     <div class="row g-4">
@@ -906,7 +934,7 @@
 
                 <!-- Consignes générales -->
                 <div
-                    v-show="tab === 'prompt'"
+                    v-show="section === 'interventions' && tab === 'prompt'"
                     class="card-body pt-0"
                 >
                     <div class="row g-3">
@@ -1012,7 +1040,7 @@
 
                 <!-- Bibliothèque -->
                 <div
-                    v-show="tab === 'library'"
+                    v-show="section === 'interventions' && tab === 'library'"
                     class="card-body pt-0"
                 >
                     <p class="text-body-secondary">
@@ -1149,7 +1177,7 @@
 
                 <!-- Historique -->
                 <div
-                    v-show="tab === 'history'"
+                    v-show="section === 'history'"
                     class="card-body pt-0"
                 >
                     <div class="buttons mb-3">
@@ -1169,6 +1197,21 @@
                         >
                             Effacer l'historique
                         </button>
+                        <select
+                            v-model="historyFilter"
+                            class="form-select d-inline-block w-auto ms-2"
+                            aria-label="Afficher"
+                        >
+                            <option value="all">
+                                Tout
+                            </option>
+                            <option value="interventions">
+                                Interventions
+                            </option>
+                            <option value="chronicles">
+                                Chroniques
+                            </option>
+                        </select>
                     </div>
                     <p
                         v-if="history.length === 0"
@@ -1192,7 +1235,7 @@
                             </thead>
                             <tbody>
                                 <tr
-                                    v-for="job in history"
+                                    v-for="job in filteredHistory"
                                     :key="job.id"
                                 >
                                     <td class="small text-nowrap">
@@ -1259,6 +1302,24 @@
                                         >
                                             {{ job.library_note }}
                                         </div>
+                                        <ul
+                                            v-if="job.sources && job.sources.length"
+                                            class="list-unstyled mb-0 mt-1"
+                                        >
+                                            <li
+                                                v-for="(src, si) in job.sources"
+                                                :key="si"
+                                                :class="src.ok ? 'text-body-secondary' : 'text-danger'"
+                                            >
+                                                {{ src.ok ? '✓' : '✗' }} {{ src.label }}
+                                                <template v-if="src.ok && src.kind === 'rss'">
+                                                    ({{ src.items }} article(s))
+                                                </template>
+                                                <template v-if="!src.ok">
+                                                    : {{ src.error }}
+                                                </template>
+                                            </li>
+                                        </ul>
                                         <div
                                             v-if="job.bed && job.bed.title"
                                             class="text-body-secondary"
@@ -1290,8 +1351,26 @@
                     </div>
                 </div>
 
+                <!-- Chroniques -->
                 <div
-                    v-show="tab !== 'history' && tab !== 'library'"
+                    v-if="section === 'chronicles'"
+                    class="card-body pt-0"
+                >
+                    <ChroniclesPanel
+                        :api="api"
+                        :settings="settings"
+                        :playlists="playlists"
+                        :files="chronicleFiles"
+                        :default-chronicle="defaultChronicle"
+                        :default-source="defaultSource"
+                        :save="saveQuiet"
+                        @notice="(n) => (notice = n)"
+                        @history="openSection('history')"
+                    />
+                </div>
+
+                <div
+                    v-show="section !== 'history' && !(section === 'interventions' && tab === 'library')"
                     class="card-footer av-save-bar d-flex align-items-center gap-3"
                 >
                     <button
@@ -1424,6 +1503,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { createApi } from "./api.js";
 import HostModal from "./HostModal.vue";
 import CreditsBar from "./CreditsBar.vue";
+import ChroniclesPanel from "./ChroniclesPanel.vue";
 import {
     DEEPSEEK_MODELS, ELEVENLABS_MODELS, KINDS, STATUSES,
     clone, describeSlot, findOverlaps, formatDateTime, formatDuration, formatNumber, formatTimestamp,
@@ -1434,13 +1514,17 @@ const props = defineProps({
 });
 
 const api = createApi(props.base);
+const sections = [
+    { key: "interventions", label: "Interventions" },
+    { key: "chronicles", label: "Chroniques" },
+    { key: "services", label: "Services IA" },
+    { key: "history", label: "Historique" },
+];
 const tabs = [
     { key: "hosts", label: "Animateurs" },
-    { key: "services", label: "Services IA" },
     { key: "sound", label: "Fond musical et son" },
     { key: "prompt", label: "Consignes générales" },
     { key: "library", label: "Bibliothèque" },
-    { key: "history", label: "Historique" },
 ];
 const kinds = KINDS;
 const statuses = STATUSES;
@@ -1459,7 +1543,12 @@ const defaultSystemPrompt = ref("");
 const defaultHost = ref(null);
 const status = ref({});
 const notice = ref(null);
+const section = ref("interventions");
 const tab = ref("hosts");
+const historyFilter = ref("all");
+const chronicleFiles = ref({});
+const defaultChronicle = ref(null);
+const defaultSource = ref(null);
 const saving = ref(false);
 const checking = ref(null);
 const testing = ref(null);
@@ -1475,6 +1564,8 @@ const expanded = reactive({});
 const deepSeekModels = ref([...DEEPSEEK_MODELS]);
 let timer = null;
 
+const filteredHistory = computed(() => history.value.filter((job) => historyFilter.value === "all"
+    || (historyFilter.value === "chronicles") === (job.kind === "chronicle")));
 const dirty = computed(() => settings.value !== null && JSON.stringify(settings.value) !== savedSnapshot.value);
 const overlaps = computed(() => (settings.value ? findOverlaps(settings.value.hosts) : []));
 const selectedBedPlaylist = computed(() => playlists.value.find((p) => p.id === settings.value?.bed.playlist_id));
@@ -1518,6 +1609,9 @@ async function reload() {
         variables.value = data.variables;
         defaultSystemPrompt.value = data.default_system_prompt;
         defaultHost.value = data.default_host;
+        defaultChronicle.value = data.default_chronicle;
+        defaultSource.value = data.default_source;
+        chronicleFiles.value = data.chronicle_files || {};
         applyState(data);
         loadError.value = "";
         loaded.value = true;
@@ -1550,8 +1644,23 @@ function clearMask(service) {
 
 function openTab(key) {
     tab.value = key;
-    if (key === "history") loadHistory();
     if (key === "library") loadLibrary();
+}
+
+function openSection(key) {
+    section.value = key;
+    if (key === "history") loadHistory();
+    if (key === "interventions" && tab.value === "library") loadLibrary();
+}
+
+/** Saves without a success message (used by the chronicle window). */
+async function saveQuiet() {
+    await save(true);
+    try {
+        chronicleFiles.value = (await api.state()).chronicle_files || {};
+    } catch {
+        // refreshed at the next load
+    }
 }
 
 function playlistLabel(p) {
@@ -1696,7 +1805,7 @@ async function refreshStatus() {
     try {
         const data = await api.history();
         status.value = data.status;
-        if (tab.value === "history") history.value = data.rows;
+        if (section.value === "history") history.value = data.rows;
     } catch {
         // ignored: refreshed again later
     }

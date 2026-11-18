@@ -178,8 +178,8 @@ final class Jobs
         $stats = ['generated' => 0, 'reused' => 0];
         foreach ($this->list($stationId, 10000, $localNow->format('Ymd') . '-') as $job) {
             $status = $job['status'] ?? '';
-            if ($status === 'skipped') {
-                continue;
+            if ($status === 'skipped' || ($job['kind'] ?? '') === 'chronicle') {
+                continue; // chronicles are scheduled on purpose: not counted against the limit
             }
             if (!empty($job['reused'])) {
                 if ($status === 'done') {

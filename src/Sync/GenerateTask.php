@@ -6,9 +6,13 @@ namespace Plugin\AzuracastAnimateursVirtuels\Sync;
 
 use App\Entity\Station;
 use App\Sync\Task\AbstractTask;
+use DateTimeImmutable;
+use Plugin\AzuracastAnimateursVirtuels\Service\ChronicleGenerator;
+use Plugin\AzuracastAnimateursVirtuels\Service\ChronicleSettings;
 use Plugin\AzuracastAnimateursVirtuels\Service\Database;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
+use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
 use Plugin\AzuracastAnimateursVirtuels\Service\Store;
 use Throwable;
 
@@ -21,6 +25,8 @@ final class GenerateTask extends AbstractTask
 {
     public function __construct(
         private readonly Generator $generator,
+        private readonly ChronicleGenerator $chronicles,
+        private readonly Launcher $launcher,
         private readonly Jobs $jobs,
         private readonly Store $store,
         private readonly Database $database
@@ -66,11 +72,40 @@ final class GenerateTask extends AbstractTask
     private function processStation(Station $station): void
     {
         $stationId = (int)$station->id;
-        if (!is_dir($this->jobs->root() . '/' . $stationId)) {
+        $settings = $this->store->read($station);
+        if (!is_dir($this->jobs->root() . '/' . $stationId) && $settings['chronicles'] === []) {
             return; // the plugin was never used on this station
         }
 
+        // Chronicles due now: queued and started in the background.
+        $now = new DateTimeImmutable('now', $station->getTimezoneObject());
+        foreach ($settings['chronicles'] as $chronicle) {
+            $slot = null;
+            $this->jobs->updateState($stationId, function (array $state) use ($chronicle, $now, &$slot): array {
+                $done = $state['chronicles_done'][$chronicle['id']] ?? [];
+                $slot = ChronicleSettings::dueSlot($chronicle, $now, $done);
+                if ($slot !== null) {
+                    $done[] = $slot;
+                    $state['chronicles_done'][$chronicle['id']] = array_slice($done, -50);
+                }
+
+                return $state;
+            });
+            if ($slot !== null) {
+                $job = $this->chronicles->queue($station, $chronicle, 'schedule', $slot);
+                $this->launcher->start($stationId, (string)$job['id'], 0);
+            }
+        }
+
+        // Interventions and chronicles not generated yet (immediate start failed or still waiting).
         foreach ($this->jobs->pending($stationId) as $job) {
+            if (($job['kind'] ?? '') === 'chronicle') {
+                $created = strtotime((string)$job['created_at']) ?: 0;
+                if (time() - $created >= 45) { // leaves time for the background start
+                    $this->chronicles->run($station, (string)$job['id']);
+                }
+                continue;
+            }
             $this->generator->generate($station, (string)$job['id']);
         }
 
@@ -86,7 +121,6 @@ final class GenerateTask extends AbstractTask
             }
         }
 
-        $settings = $this->store->read($station);
         $this->jobs->updateState($stationId, function (array $state) use ($stationId, $settings): array {
             if (time() - (int)($state['cleanup_at'] ?? 0) >= 3600) {
                 $this->jobs->cleanup($stationId, (int)$settings['retention_days']);

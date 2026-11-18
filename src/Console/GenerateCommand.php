@@ -6,6 +6,7 @@ namespace Plugin\AzuracastAnimateursVirtuels\Console;
 
 use App\Container\EntityManagerAwareTrait;
 use App\Entity\Station;
+use Plugin\AzuracastAnimateursVirtuels\Service\ChronicleGenerator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -33,6 +34,7 @@ final class GenerateCommand extends Command
 
     public function __construct(
         private readonly Generator $generator,
+        private readonly ChronicleGenerator $chronicles,
         private readonly Jobs $jobs
     ) {
         parent::__construct();
@@ -70,7 +72,10 @@ final class GenerateCommand extends Command
             return 0;
         }
 
-        $job = $this->generator->generate($station, (string)$jobId);
+        $pending = $this->jobs->load((int)$station->id, (string)$jobId);
+        $job = ($pending['kind'] ?? '') === 'chronicle'
+            ? $this->chronicles->run($station, (string)$jobId)
+            : $this->generator->generate($station, (string)$jobId);
         if ($job === null) {
             $io->note('Déjà en cours de génération par un autre processus.');
 

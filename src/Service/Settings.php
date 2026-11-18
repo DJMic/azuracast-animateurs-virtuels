@@ -79,6 +79,7 @@ final class Settings
             ],
             'retention_days' => 7,
             'hosts' => [],
+            'chronicles' => [],
         ];
     }
 
@@ -166,6 +167,11 @@ final class Settings
                 is_array($host) ? $host : []
             ),
             is_array($stored['hosts'] ?? null) ? $stored['hosts'] : []
+        ));
+
+        $settings['chronicles'] = array_values(array_map(
+            static fn(mixed $c): array => self::mergeDeep(ChronicleSettings::defaults(), is_array($c) ? $c : []),
+            is_array($stored['chronicles'] ?? null) ? $stored['chronicles'] : []
         ));
 
         return $settings;
@@ -291,6 +297,19 @@ final class Settings
             }
         }
         unset($host);
+
+        $out['chronicles'] = [];
+        $chronicleNames = [];
+        $hostIds = array_column(array_filter($out['hosts'], static fn(array $h): bool => $h['voice_id'] !== ''), 'id');
+        foreach (is_array($input['chronicles'] ?? null) ? $input['chronicles'] : [] as $chronicle) {
+            $chronicle = ChronicleSettings::validate(is_array($chronicle) ? $chronicle : [], $hostIds, $accountIds);
+            $key = mb_strtolower($chronicle['name']);
+            if (isset($chronicleNames[$key])) {
+                throw new InvalidArgumentException('Deux chroniques portent le nom « ' . $chronicle['name'] . ' ».');
+            }
+            $chronicleNames[$key] = true;
+            $out['chronicles'][] = $chronicle;
+        }
 
         if ($out['enabled']) {
             if ($out['deepseek']['api_key'] === '' || $accounts === []) {

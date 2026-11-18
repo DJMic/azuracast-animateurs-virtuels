@@ -267,37 +267,20 @@ final class Generator
     /** Mixes a voice over a music bed into the job's clip. */
     private function mixVoice(Station $station, array $settings, array $host, array $job, string $voicePath): array
     {
-        $variables = is_array($job['variables']) ? $job['variables'] : [];
         $mixPath = $this->jobs->dir((int)$station->id, 'tmp') . '/' . $job['id'] . '-mix.mp3';
         try {
             // No title/artist tags in the file: Liquidsoap gets them only through the annotations,
             // so that "hide metadata" really hides them.
-            $metadata = [];
-            $bed = $this->pickBed($station, $settings, $host);
-            if ($bed === null) {
-                $job['bed'] = null;
-                $duration = $this->mixer->mix($voicePath, null, null, $settings['bed'], $settings['output'], $mixPath, $metadata);
-            } else {
-                $job['bed'] = ['title' => $bed['title'], 'artist' => $bed['artist'], 'path' => $bed['path']];
-                $fs = $this->filesystems->getMediaFilesystem($station);
-                $duration = $fs->withLocalFile(
-                    $bed['path'],
-                    fn(string $local): float => $this->mixer->mix(
-                        $voicePath,
-                        $local,
-                        $bed['length'] > 0 ? (float)$bed['length'] : null,
-                        $settings['bed'],
-                        $settings['output'],
-                        $mixPath,
-                        $metadata
-                    )
-                );
-            }
+            $playlistId = !empty($settings['bed']['enabled'])
+                ? (($host['bed_playlist_id'] ?? null) ?: ($settings['bed']['playlist_id'] ?? null))
+                : null;
+            $result = $this->mixWithBed($station, $settings, $playlistId ? (int)$playlistId : null, $voicePath, $mixPath, []);
+            $job['bed'] = $result['bed'];
 
             if (!@chmod($mixPath, 0644) || !rename($mixPath, (string)$job['path'])) {
                 throw new RuntimeException('Impossible d\'enregistrer le clip ' . $job['path']);
             }
-            $job['duration'] = round($duration, 2);
+            $job['duration'] = round($result['duration'], 2);
         } finally {
             @unlink($mixPath);
         }
@@ -306,21 +289,45 @@ final class Generator
     }
 
     /**
-     * Random track of the bed playlist (the host's own playlist, else the station's one).
+     * Mixes a voice over a random track of a playlist (or alone if $playlistId is null),
+     * with the station's mixing settings. Used by interventions and chronicles.
      *
-     * @return array{path: string, title: string, artist: string, length: float}|null
+     * @return array{duration: float, bed: ?array{title: string, artist: string, path: string}}
      */
-    public function pickBed(Station $station, array $settings, array $host): ?array
+    public function mixWithBed(Station $station, array $settings, ?int $playlistId, string $voicePath, string $outPath, array $metadata): array
     {
-        if (empty($settings['bed']['enabled'])) {
-            return null;
+        $bed = $playlistId !== null ? $this->pickBedFromPlaylist($station, $playlistId) : null;
+        if ($bed === null) {
+            return [
+                'duration' => $this->mixer->mix($voicePath, null, null, $settings['bed'], $settings['output'], $outPath, $metadata),
+                'bed' => null,
+            ];
         }
-        $playlistId = ($host['bed_playlist_id'] ?? null) ?: ($settings['bed']['playlist_id'] ?? null);
-        if (!$playlistId) {
-            return null;
-        }
+        $duration = $this->filesystems->getMediaFilesystem($station)->withLocalFile(
+            $bed['path'],
+            fn(string $local): float => $this->mixer->mix(
+                $voicePath,
+                $local,
+                $bed['length'] > 0 ? (float)$bed['length'] : null,
+                $settings['bed'],
+                $settings['output'],
+                $outPath,
+                $metadata
+            )
+        );
+
+        return ['duration' => $duration, 'bed' => ['title' => $bed['title'], 'artist' => $bed['artist'], 'path' => $bed['path']]];
+    }
+
+    /**
+     * Random track of a playlist of the station.
+     *
+     * @return array{path: string, title: string, artist: string, length: float}
+     */
+    public function pickBedFromPlaylist(Station $station, int $playlistId): array
+    {
         $this->database->prepare();
-        $playlist = $this->em->find(StationPlaylist::class, (int)$playlistId);
+        $playlist = $this->em->find(StationPlaylist::class, $playlistId);
         if (!$playlist instanceof StationPlaylist || $playlist->station->id !== $station->id) {
             throw new RuntimeException('La playlist du fond musical n\'existe plus.');
         }
