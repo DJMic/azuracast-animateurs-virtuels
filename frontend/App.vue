@@ -1697,12 +1697,21 @@ const problems = computed(() => {
             + "l'avance : il n'y a pas le temps de générer les interventions avant leur diffusion. Dans AzuraCast, "
             + "ouvrez Profil › Modifier le profil › onglet AutoDJ et réglez la longueur de la file d'attente "
             + "(« AutoDJ Queue Length ») sur 5 ou plus.");
+    } else if (status.value.queue_length === 4 && announcesNextSong.value) {
+        list.push("La file d'attente AutoDJ de cette station prépare 4 éléments à l'avance. Quand une intervention "
+            + "tombe juste avant un jingle, AzuraCast choisit le morceau d'après trop tard pour qu'il soit annoncé : "
+            + "l'animateur parle alors d'autre chose. Avec 5 éléments ou plus (Profil › Modifier le profil › onglet "
+            + "AutoDJ, « AutoDJ Queue Length »), le titre suivant est toujours annoncé.");
     }
     if (settings.value?.enabled && !settings.value.hosts.some((h) => h.enabled && h.slots.length)) {
         list.push("Activé, mais aucun animateur actif n'a de tranche horaire.");
     }
     return list;
 });
+
+// Whether an active host talks about the next song (its prompts or personality use {titre_suivant}).
+const announcesNextSong = computed(() => (settings.value?.hosts || []).some((h) => h.enabled
+    && /\{(titre|artiste)_suivant\}/i.test([h.personality, ...h.prompts.filter((p) => p.enabled).map((p) => p.text)].join(" "))));
 
 function applyState(data) {
     settings.value = data.settings;

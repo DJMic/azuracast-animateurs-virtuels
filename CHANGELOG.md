@@ -1,5 +1,10 @@
 # Changements
 
+## 1.5.1 – 2026-11-20
+
+- **Titre suivant annoncé après un jingle.** Quand une intervention tombe juste avant un jingle, le morceau d'après n'est pas encore choisi par AzuraCast. Le plugin l'attendait 2 minutes au plus, alors qu'avec une file d'attente de 5 éléments AzuraCast le choisit plutôt 3 à 4 minutes plus tard : l'animateur ne l'annonçait donc pas. Il l'attend maintenant jusqu'à 45 secondes avant la diffusion de l'intervention (15 minutes au plus). Avec une file d'attente AutoDJ de 5 éléments ou plus, le titre suivant est annoncé.
+- L'interface signale qu'une file d'attente de 4 éléments ne permet pas d'annoncer le titre suivant après un jingle, si un animateur actif l'utilise dans ses textes.
+
 ## 1.5.0 – 2026-11-18
 
 - **Mistral Voxtral, un second service de voix.** Chaque animateur, et chaque chronique à voix propre, choisit maintenant entre ElevenLabs et Voxtral.

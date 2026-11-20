@@ -24,6 +24,15 @@ final class Generator
     /** An intervention whose air time is this far in the past is abandoned. */
     private const int TOO_LATE = 600;
 
+    /**
+     * Waiting for AzuraCast to choose the song after a jingle stops this long before the clip is
+     * asked for, to leave time for the generation (text, voice, mix).
+     */
+    public const int RESOLVE_MARGIN = 45;
+
+    /** Longest wait for that song, whatever the queue (safety). */
+    public const int RESOLVE_MAX_WAIT = 900;
+
     public function __construct(
         private readonly Store $store,
         private readonly Jobs $jobs,
@@ -382,8 +391,7 @@ final class Generator
             return $job; // the prompt does not talk about the next song
         }
 
-        $askAt = strtotime((string)($job['ask_at'] ?? '')) ?: time();
-        $deadline = min(time() + 120, $askAt - 35);
+        $deadline = self::resolveDeadline((string)($job['ask_at'] ?? ''), time());
         do {
             $this->database->prepare();
             $next = $this->em->createQuery(
@@ -410,6 +418,18 @@ final class Generator
         $job['library_note'] = trim(($job['library_note'] ?? '') . ' Morceau suivant pas encore choisi par AzuraCast : non annoncé.');
 
         return $job;
+    }
+
+    /**
+     * Until when to wait for the song after a jingle: up to RESOLVE_MARGIN seconds before the
+     * clip is asked for (with a long AutoDJ queue, AzuraCast chooses it a few minutes later).
+     * Pure function, tested.
+     */
+    public static function resolveDeadline(string $askAt, int $now): int
+    {
+        $ask = strtotime($askAt) ?: $now;
+
+        return min($now + self::RESOLVE_MAX_WAIT, $ask - self::RESOLVE_MARGIN);
     }
 
     /** @return array{id: int, sent: bool}|null */

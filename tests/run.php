@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 // Standalone tests for the logic that does not need AzuraCast: php tests/run.php
 
-foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations', 'ChronicleSettings', 'Weather', 'Sources', 'VoxtralVoice', 'Voxtral'] as $class) {
+foreach (['Plugin', 'Settings', 'Planner', 'PromptBuilder', 'Shell', 'Mixer', 'Store', 'Jobs', 'Http', 'ElevenLabs', 'Library', 'Credits', 'ClipAnnotations', 'ChronicleSettings', 'Weather', 'Sources', 'VoxtralVoice', 'Voxtral', 'Generator'] as $class) {
     require __DIR__ . '/../src/Service/' . $class . '.php';
 }
 
@@ -20,6 +20,7 @@ use Plugin\AzuracastAnimateursVirtuels\Service\PromptBuilder;
 use Plugin\AzuracastAnimateursVirtuels\Service\Settings;
 use Plugin\AzuracastAnimateursVirtuels\Service\Shell;
 use Plugin\AzuracastAnimateursVirtuels\Service\Sources;
+use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Voxtral;
 use Plugin\AzuracastAnimateursVirtuels\Service\VoxtralVoice;
 use Plugin\AzuracastAnimateursVirtuels\Service\Weather;
@@ -108,6 +109,13 @@ throws('noms de comptes en double', static fn() => Settings::fromInput($dup, [])
 $reordered = Settings::forDisplay($multiSaved);
 $reordered['elevenlabs']['accounts'] = array_reverse($reordered['elevenlabs']['accounts']);
 check('clés retrouvées par compte, pas par position', array_column(Settings::fromInput($reordered, $multiSaved)['elevenlabs']['accounts'], 'api_key'), ['sk_b', 'sk_a']);
+
+// --- Next song after a jingle ----------------------------------------------------------------------
+$now = 1_800_000_000;
+check('morceau suivant : attente jusqu\'à 45 s avant la diffusion', Generator::resolveDeadline(date(DATE_ATOM, $now + 420), $now), $now + 375);
+check('morceau suivant : attente plafonnée à 15 min', Generator::resolveDeadline(date(DATE_ATOM, $now + 3600), $now), $now + 900);
+check('morceau suivant : diffusion imminente, pas d\'attente', Generator::resolveDeadline(date(DATE_ATOM, $now + 20), $now) < $now, true);
+check('morceau suivant : heure de demande inconnue', Generator::resolveDeadline('', $now) < $now, true);
 
 // --- Mistral Voxtral ------------------------------------------------------------------------------
 $vxHost = Settings::defaultHost();
