@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { merge } from "../bin/compose-override.mjs";
-import { contextVariables, describeSlot, findOverlaps } from "../frontend/helpers.js";
+import { contextVariables, describeSlot, findOverlaps, pageItems } from "../frontend/helpers.js";
 
 const OTHER = `# Mon fichier
 services:
@@ -65,4 +65,12 @@ test("chevauchement de tranches entre animateurs", () => {
 test("variables interdites dans un prompt intemporel", () => {
     assert.deepEqual(contextVariables("Tu es {animateur} sur {station}"), []);
     assert.deepEqual(contextVariables("Il est {HEURE}, {moment} {heure}"), ["heure", "moment"]);
+});
+
+test("pagination : numéros de pages affichés", () => {
+    assert.deepEqual(pageItems(1, 1), [1]);
+    assert.deepEqual(pageItems(1, 5), [1, 2, 3, 4, 5]);
+    assert.deepEqual(pageItems(7, 20), [1, null, 5, 6, 7, 8, 9, null, 20]);
+    assert.deepEqual(pageItems(4, 20), [1, 2, 3, 4, 5, 6, null, 20]);
+    assert.deepEqual(pageItems(20, 20), [1, null, 18, 19, 20]);
 });

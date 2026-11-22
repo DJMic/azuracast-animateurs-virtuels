@@ -164,6 +164,67 @@ final class Jobs
     }
 
     /**
+     * One page of the history, most recent first.
+     *
+     * @param string $filter "all", "interventions" or "chronicles"
+     *
+     * @return array{rows: array[], total: int, page: int}
+     */
+    public function page(int $stationId, int $page, int $perPage, string $filter = 'all'): array
+    {
+        $files = glob($this->dir($stationId, 'jobs') . '/*.json') ?: [];
+        rsort($files, SORT_STRING);
+
+        if ($filter === 'interventions' || $filter === 'chronicles') {
+            // The kind is only in the file: read them all (kept a limited number of days).
+            $jobs = [];
+            foreach ($files as $file) {
+                try {
+                    $job = Store::load($file);
+                } catch (RuntimeException) {
+                    continue;
+                }
+                if ($job !== [] && (($job['kind'] ?? '') === 'chronicle') === ($filter === 'chronicles')) {
+                    $jobs[] = $job;
+                }
+            }
+            $result = self::slice(count($jobs), $page, $perPage);
+
+            return ['rows' => array_slice($jobs, $result['offset'], $perPage), 'total' => count($jobs), 'page' => $result['page']];
+        }
+
+        $result = self::slice(count($files), $page, $perPage);
+        $jobs = [];
+        foreach (array_slice($files, $result['offset'], $perPage) as $file) {
+            try {
+                $job = Store::load($file);
+            } catch (RuntimeException) {
+                continue;
+            }
+            if ($job !== []) {
+                $jobs[] = $job;
+            }
+        }
+
+        return ['rows' => $jobs, 'total' => count($files), 'page' => $result['page']];
+    }
+
+    /**
+     * Page actually shown (the last one if $page is past the end) and its first item.
+     * Pure function, tested.
+     *
+     * @return array{page: int, offset: int}
+     */
+    public static function slice(int $total, int $page, int $perPage): array
+    {
+        $perPage = max(1, $perPage);
+        $pages = max(1, (int)ceil($total / $perPage));
+        $page = max(1, min($page, $pages));
+
+        return ['page' => $page, 'offset' => ($page - 1) * $perPage];
+    }
+
+    /**
      * Interventions counted against the daily limit: everything that was or will be generated
      * through the APIs. Clips reused from the library cost nothing and are not counted.
      */

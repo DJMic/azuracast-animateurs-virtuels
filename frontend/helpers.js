@@ -152,3 +152,25 @@ export function formatDay(seconds) {
         ? new Date(seconds * 1000).toLocaleDateString("fr-BE", { day: "numeric", month: "long" })
         : "";
 }
+
+/**
+ * Page numbers to show: always the first, the last and two around the current one;
+ * null marks a gap ("…"). Example: pageItems(7, 20) → [1, null, 5, 6, 7, 8, 9, null, 20].
+ */
+export function pageItems(page, pages) {
+    const shown = new Set([1, pages]);
+    for (let p = page - 2; p <= page + 2; p++) {
+        if (p >= 1 && p <= pages) shown.add(p);
+    }
+    const sorted = [...shown].sort((a, b) => a - b);
+    const items = [];
+    sorted.forEach((p, i) => {
+        if (i > 0) {
+            const gap = p - sorted[i - 1];
+            if (gap === 2) items.push(p - 1);
+            else if (gap > 2) items.push(null);
+        }
+        items.push(p);
+    });
+    return items;
+}

@@ -1,5 +1,11 @@
 # Changements
 
+## 1.6.0 – 2026-11-22
+
+- **Historique paginé.** 25, 50 ou 100 lignes par page, avec la navigation en haut et en bas du tableau. Tout l'historique conservé est accessible, et plus seulement les 200 dernières lignes. Le filtre Interventions / Chroniques s'applique à l'ensemble de l'historique.
+- **Bibliothèque paginée.** 20 clips par page pour chaque animateur.
+- **Page plus légère.** L'actualisation automatique ne recharge plus que la page d'historique affichée (et une seule ligne quand l'historique n'est pas ouvert), au lieu de 200 lignes toutes les quelques secondes.
+
 ## 1.5.1 – 2026-11-20
 
 - **Titre suivant annoncé après un jingle.** Quand une intervention tombe juste avant un jingle, le morceau d'après n'est pas encore choisi par AzuraCast. Le plugin l'attendait 2 minutes au plus, alors qu'avec une file d'attente de 5 éléments AzuraCast le choisit plutôt 3 à 4 minutes plus tard : l'animateur ne l'annonçait donc pas. Il l'attend maintenant jusqu'à 45 secondes avant la diffusion de l'intervention (15 minutes au plus). Avec une file d'attente AutoDJ de 5 éléments ou plus, le titre suivant est annoncé.

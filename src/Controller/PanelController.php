@@ -178,14 +178,21 @@ final class PanelController
     {
         return $this->guard($response, function () use ($request, $response): ResponseInterface {
             $station = $request->getStation();
-            $rows = [];
+            $query = $request->getQueryParams();
+            $perPage = max(10, min(100, (int)($query['per_page'] ?? 25)));
+            $filter = in_array($query['filter'] ?? '', ['interventions', 'chronicles'], true) ? $query['filter'] : 'all';
+            $page = ['rows' => [], 'total' => 0, 'page' => 1];
             if ($this->jobs->isWritable()) {
-                foreach ($this->jobs->list((int)$station->id, 200) as $job) {
-                    $rows[] = $this->jobForDisplay($job);
-                }
+                $page = $this->jobs->page((int)$station->id, max(1, (int)($query['page'] ?? 1)), $perPage, $filter);
             }
 
-            return $this->json($response, ['rows' => $rows, 'status' => $this->status($station)]);
+            return $this->json($response, [
+                'rows' => array_map(fn(array $job): array => $this->jobForDisplay($job), $page['rows']),
+                'total' => $page['total'],
+                'page' => $page['page'],
+                'per_page' => $perPage,
+                'status' => $this->status($station),
+            ]);
         });
     }
 

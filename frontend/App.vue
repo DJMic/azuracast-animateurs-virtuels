@@ -1233,7 +1233,7 @@
                                     </thead>
                                     <tbody>
                                         <tr
-                                            v-for="entry in lib.entries"
+                                            v-for="entry in libraryEntries(lib)"
                                             :key="entry.id"
                                         >
                                             <td class="small">
@@ -1281,6 +1281,15 @@
                                     </tbody>
                                 </table>
                             </div>
+                            <Pager
+                                v-if="lib.entries.length > LIBRARY_PER_PAGE"
+                                class="mt-2"
+                                :label="`Pages de la bibliothèque de ${lib.name}`"
+                                :page="libraryPage(lib)"
+                                :per-page="LIBRARY_PER_PAGE"
+                                :total="lib.entries.length"
+                                @update:page="(p) => (libraryPages[lib.host_id] = p)"
+                            />
                         </div>
                     </div>
                 </div>
@@ -1288,6 +1297,7 @@
                 <!-- Historique -->
                 <div
                     v-show="section === 'history'"
+                    id="av-history"
                     class="card-body pt-0"
                 >
                     <div class="buttons mb-3">
@@ -1302,7 +1312,7 @@
                         <button
                             type="button"
                             class="btn btn-danger"
-                            :disabled="history.length === 0"
+                            :disabled="historyTotal === 0"
                             @click="clearHistory"
                         >
                             Effacer l'historique
@@ -1310,6 +1320,7 @@
                         <select
                             v-model="historyFilter"
                             class="form-select d-inline-block w-auto ms-2"
+                            @change="loadHistory(false, 1)"
                             aria-label="Afficher"
                         >
                             <option value="all">
@@ -1329,6 +1340,17 @@
                     >
                         {{ historyLoading ? 'Chargement…' : 'Aucune intervention pour l\'instant.' }}
                     </p>
+                    <Pager
+                        v-else
+                        class="mb-2"
+                        label="Pages de l'historique"
+                        :page="historyPage"
+                        :per-page="historyPerPage"
+                        :total="historyTotal"
+                        :per-page-options="[25, 50, 100]"
+                        @update:page="(p) => loadHistory(false, p)"
+                        @update:per-page="(n) => { historyPerPage = n; loadHistory(false, 1); }"
+                    />
                     <div
                         v-else
                         class="table-responsive"
@@ -1345,7 +1367,7 @@
                             </thead>
                             <tbody>
                                 <tr
-                                    v-for="job in filteredHistory"
+                                    v-for="job in history"
                                     :key="job.id"
                                 >
                                     <td class="small text-nowrap">
@@ -1459,6 +1481,15 @@
                             </tbody>
                         </table>
                     </div>
+                    <Pager
+                        v-if="history.length > 0 && historyTotal > historyPerPage"
+                        class="mt-2"
+                        label="Pages de l'historique"
+                        :page="historyPage"
+                        :per-page="historyPerPage"
+                        :total="historyTotal"
+                        @update:page="(p) => { loadHistory(false, p); scrollToTop(); }"
+                    />
                 </div>
 
                 <!-- Chroniques -->
@@ -1615,6 +1646,7 @@ import { createApi } from "./api.js";
 import HostModal from "./HostModal.vue";
 import CreditsBar from "./CreditsBar.vue";
 import ChroniclesPanel from "./ChroniclesPanel.vue";
+import Pager from "./Pager.vue";
 import {
     DEEPSEEK_MODELS, ELEVENLABS_MODELS, KINDS, STATUSES,
     clone, describeSlot, findOverlaps, formatDateTime, formatDuration, formatNumber, formatTimestamp,
@@ -1675,8 +1707,25 @@ const expanded = reactive({});
 const deepSeekModels = ref([...DEEPSEEK_MODELS]);
 let timer = null;
 
-const filteredHistory = computed(() => history.value.filter((job) => historyFilter.value === "all"
-    || (historyFilter.value === "chronicles") === (job.kind === "chronicle")));
+const historyPage = ref(1);
+const historyPerPage = ref(25);
+const historyTotal = ref(0);
+
+// Library: clips shown per page, for each host (its current page in libraryPages).
+const LIBRARY_PER_PAGE = 20;
+const libraryPages = reactive({});
+function libraryPage(lib) {
+    const pages = Math.max(1, Math.ceil(lib.entries.length / LIBRARY_PER_PAGE));
+    return Math.min(libraryPages[lib.host_id] || 1, pages);
+}
+function libraryEntries(lib) {
+    const start = (libraryPage(lib) - 1) * LIBRARY_PER_PAGE;
+    return lib.entries.slice(start, start + LIBRARY_PER_PAGE);
+}
+
+function scrollToTop() {
+    document.getElementById("av-history")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 const dirty = computed(() => settings.value !== null && JSON.stringify(settings.value) !== savedSnapshot.value);
 const overlaps = computed(() => (settings.value ? findOverlaps(settings.value.hosts) : []));
 const selectedBedPlaylist = computed(() => playlists.value.find((p) => p.id === settings.value?.bed.playlist_id));
@@ -1921,12 +1970,17 @@ async function refreshCredits() {
     }
 }
 
-async function loadHistory(silent = false) {
+function applyHistory(data) {
+    history.value = data.rows;
+    historyTotal.value = data.total;
+    historyPage.value = data.page;
+    status.value = data.status;
+}
+
+async function loadHistory(silent = false, page = historyPage.value) {
     if (!silent) historyLoading.value = true;
     try {
-        const data = await api.history();
-        history.value = data.rows;
-        status.value = data.status;
+        applyHistory(await api.history(page, historyPerPage.value, historyFilter.value));
     } catch (error) {
         if (!silent) notice.value = { type: "error", text: error.message };
     } finally {
@@ -1936,9 +1990,12 @@ async function loadHistory(silent = false) {
 
 async function refreshStatus() {
     try {
-        const data = await api.history();
-        status.value = data.status;
-        if (section.value === "history") history.value = data.rows;
+        // The history page shown is refreshed with the status (a single row when it is not shown).
+        if (section.value === "history") {
+            applyHistory(await api.history(historyPage.value, historyPerPage.value, historyFilter.value));
+        } else {
+            status.value = (await api.history(1, 10)).status;
+        }
     } catch {
         // ignored: refreshed again later
     }
@@ -1949,7 +2006,7 @@ async function clearHistory() {
     try {
         const result = await api.clearHistory();
         notice.value = { type: "success", text: result.message };
-        await loadHistory();
+        await loadHistory(false, 1);
     } catch (error) {
         notice.value = { type: "error", text: error.message };
     }

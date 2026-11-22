@@ -466,6 +466,17 @@ foreach ([['status' => 'done'], ['status' => 'done', 'reused' => true], ['status
     $statsJobs->create(1, $day, $j);
 }
 check('limite : les clips réutilisés ne comptent pas', $statsJobs->todayStats(1, $day), ['generated' => 2, 'reused' => 1]);
+$statsJobs->create(1, $at('2026-11-16 09:00'), ['status' => 'done', 'kind' => 'chronicle']);
+$statsJobs->create(1, $at('2026-11-16 10:00'), ['status' => 'done', 'kind' => 'between']);
+$p1 = $statsJobs->page(1, 1, 3);
+check('historique : page 1, plus récente d\'abord', [count($p1['rows']), $p1['total'], $p1['page'], $p1['rows'][0]['kind']], [3, 7, 1, 'between']);
+$p3 = $statsJobs->page(1, 3, 3);
+check('historique : dernière page', [count($p3['rows']), $p3['page']], [1, 3]);
+check('historique : page au-delà de la fin', $statsJobs->page(1, 9, 3)['page'], 3);
+$chron = $statsJobs->page(1, 1, 10, 'chronicles');
+check('historique : filtre chroniques', [$chron['total'], $chron['rows'][0]['kind']], [1, 'chronicle']);
+check('historique : filtre interventions', $statsJobs->page(1, 1, 10, 'interventions')['total'], 6);
+check('historique : vide', Jobs::slice(0, 4, 25), ['page' => 1, 'offset' => 0]);
 exec('rm -rf ' . escapeshellarg($statsRoot));
 
 // --- Liquidsoap annotations ------------------------------------------------------------------------

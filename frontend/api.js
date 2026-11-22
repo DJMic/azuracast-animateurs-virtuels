@@ -37,7 +37,9 @@ export function createApi(base) {
     return {
         state: () => request("/state"),
         save: (settings) => post("/settings", settings),
-        history: () => request("/history"),
+        history: (page = 1, perPage = 25, filter = "all") => request(
+            `/history?page=${page}&per_page=${perPage}&filter=${encodeURIComponent(filter)}`,
+        ),
         clearHistory: () => post("/history/clear"),
         test: (hostId, promptId = "") => post("/test", {host_id: hostId, prompt_id: promptId}),
         broadcast: (jobId) => post(`/broadcast/${encodeURIComponent(jobId)}`),
