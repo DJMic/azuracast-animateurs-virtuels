@@ -689,6 +689,27 @@
                                     0 = ne jamais supprimer. La version la plus récente n'est jamais supprimée.
                                 </div>
                             </div>
+                            <div class="col-md-6">
+                                <label
+                                    class="form-label"
+                                    for="av-c-valid"
+                                >Retirer de la playlist après (heures)</label>
+                                <input
+                                    id="av-c-valid"
+                                    v-model.number="form.valid_hours"
+                                    type="number"
+                                    min="0"
+                                    max="720"
+                                    class="form-control"
+                                    :disabled="!form.playlist_id"
+                                >
+                                <div class="form-text">
+                                    Si aucune nouvelle version ne l'a remplacée dans ce délai (échec de la génération,
+                                    crédits épuisés, source sans nouveauté, serveur arrêté…), la version diffusée est
+                                    retirée de la playlist pour ne pas repasser périmée. Exemples : 24 pour un horoscope
+                                    quotidien, 3 pour un point trafic. 0 = jamais. Le fichier reste dans les médias.
+                                </div>
+                            </div>
                             <div class="col-12">
                                 <div class="form-label">
                                     Générer automatiquement
@@ -850,6 +871,7 @@ const folderEdited = ref(!props.isNew);
 
 // Chronicles saved before version 1.5.0 always use ElevenLabs.
 form.provider = form.provider || "elevenlabs";
+form.valid_hours = Number(form.valid_hours) || 0;
 form.voxtral = { ...VOXTRAL_DEFAULT, ...(form.voxtral || {}) };
 const hosts = computed(() => props.settings.hosts.filter((h) => h.id && (h.provider === "voxtral"
     ? (h.voxtral?.mode === "sample" ? h.voxtral.sample_media : h.voxtral?.voice_id)

@@ -110,6 +110,22 @@ $reordered = Settings::forDisplay($multiSaved);
 $reordered['elevenlabs']['accounts'] = array_reverse($reordered['elevenlabs']['accounts']);
 check('clés retrouvées par compte, pas par position', array_column(Settings::fromInput($reordered, $multiSaved)['elevenlabs']['accounts'], 'api_key'), ['sk_b', 'sk_a']);
 
+// --- Chronicle validity -------------------------------------------------------------------------
+$vNow = 1_800_000_000;
+$vChron = ['valid_hours' => 24, 'playlist_id' => 5];
+$vFiles = [
+    ['media_id' => 1, 'created_at' => $vNow - 30 * 3600],
+    ['media_id' => 2, 'created_at' => $vNow - 25 * 3600, 'withdrawn_at' => $vNow - 3600],
+    ['media_id' => 3, 'created_at' => $vNow - 2 * 3600],
+];
+check('validité : version périmée retirée', ChronicleSettings::expired($vChron, $vFiles, $vNow), [1]);
+check('validité : 0 = jamais', ChronicleSettings::expired(['valid_hours' => 0, 'playlist_id' => 5], $vFiles, $vNow), []);
+check('validité : sans playlist', ChronicleSettings::expired(['valid_hours' => 24, 'playlist_id' => null], $vFiles, $vNow), []);
+check('validité : limite à 720 h', ChronicleSettings::validate(array_replace(ChronicleSettings::defaults(), [
+    'name' => 'Horoscope', 'enabled' => false, 'valid_hours' => 9999,
+]), [], [])['valid_hours'], 720);
+check('validité : 0 par défaut', ChronicleSettings::defaults()['valid_hours'], 0);
+
 // --- Next song after a jingle ----------------------------------------------------------------------
 $now = 1_800_000_000;
 check('morceau suivant : attente jusqu\'à 45 s avant la diffusion', Generator::resolveDeadline(date(DATE_ATOM, $now + 420), $now), $now + 375);

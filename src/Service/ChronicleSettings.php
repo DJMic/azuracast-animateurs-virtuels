@@ -54,6 +54,8 @@ final class ChronicleSettings
             'playlist_id' => null,
             'folder' => '',
             'retention_days' => 7,
+            // Hours after which a version leaves the playlist if no newer one replaced it (0 = never).
+            'valid_hours' => 0,
             'schedule' => ['days' => [1, 2, 3, 4, 5, 6, 7], 'times' => []],
             'meta_title' => '{chronique} du {date}',
             'meta_artist' => '{station}',
@@ -171,6 +173,7 @@ final class ChronicleSettings
             'playlist_id' => self::id($in['playlist_id'] ?? null),
             'folder' => self::folder((string)($in['folder'] ?? ''), $name, $label),
             'retention_days' => self::int($in['retention_days'] ?? 7, 0, 3650),
+            'valid_hours' => self::int($in['valid_hours'] ?? 0, 0, 720),
             'schedule' => self::schedule(is_array($in['schedule'] ?? null) ? $in['schedule'] : [], $label),
             'meta_title' => self::text($in['meta_title'] ?? '', 120) ?: $d['meta_title'],
             'meta_artist' => self::text($in['meta_artist'] ?? '', 120),
@@ -276,6 +279,30 @@ final class ChronicleSettings
         }
 
         return Settings::elevenLabsSpeech($settings, $account, $chronicle['voice_id'], $chronicle['voice'], $name, '');
+    }
+
+    /**
+     * Versions to take out of the playlist: published more than valid_hours ago and not taken out
+     * yet (only those older than the newest version are left to replaceInPlaylist()). Pure, tested.
+     *
+     * @param array<int, array{media_id: int, created_at: int}> $files registry of the chronicle
+     *
+     * @return int[] media ids
+     */
+    public static function expired(array $chronicle, array $files, int $now): array
+    {
+        $hours = (int)($chronicle['valid_hours'] ?? 0);
+        if ($hours <= 0 || empty($chronicle['playlist_id'])) {
+            return [];
+        }
+        $ids = [];
+        foreach ($files as $file) {
+            if (empty($file['withdrawn_at']) && (int)($file['created_at'] ?? 0) <= $now - $hours * 3600) {
+                $ids[] = (int)$file['media_id'];
+            }
+        }
+
+        return $ids;
     }
 
     /**

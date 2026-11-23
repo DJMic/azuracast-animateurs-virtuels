@@ -1,18 +1,32 @@
 <template>
     <div class="animateurs-virtuels-app">
-        <div
-            v-if="notice"
-            class="alert alert-dismissible"
-            :class="notice.type === 'error' ? 'alert-danger' : 'alert-success'"
-            role="alert"
-        >
-            {{ notice.text }}
-            <button
-                type="button"
-                class="btn-close"
-                aria-label="Fermer"
-                @click="notice = null"
-            />
+        <!-- Messages: AzuraCast-style notification, top right, closed after a few seconds. -->
+        <div class="toast-container position-fixed top-0 end-0 p-3 av-toasts">
+            <Transition name="av-toast">
+                <div
+                    v-if="notice"
+                    :key="noticeKey"
+                    class="toast show border-0"
+                    :class="notice.type === 'error' ? 'text-bg-danger' : 'text-bg-success'"
+                    :role="notice.type === 'error' ? 'alert' : 'status'"
+                    :aria-live="notice.type === 'error' ? 'assertive' : 'polite'"
+                    aria-atomic="true"
+                    @mouseenter="pauseNotice"
+                    @mouseleave="scheduleNotice"
+                >
+                    <div class="d-flex align-items-start">
+                        <div class="toast-body">
+                            {{ notice.text }}
+                        </div>
+                        <button
+                            type="button"
+                            class="btn-close me-2 mt-2 flex-shrink-0"
+                            aria-label="Fermer"
+                            @click="notice = null"
+                        />
+                    </div>
+                </div>
+            </Transition>
         </div>
 
         <section
@@ -1641,7 +1655,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { createApi } from "./api.js";
 import HostModal from "./HostModal.vue";
 import CreditsBar from "./CreditsBar.vue";
@@ -1686,6 +1700,23 @@ const defaultSystemPrompt = ref("");
 const defaultHost = ref(null);
 const status = ref({});
 const notice = ref(null);
+
+// A message closes by itself: 4 seconds after a success, 10 seconds after an error
+// (paused while the mouse is over it).
+const noticeKey = ref(0);
+let noticeTimer = null;
+function pauseNotice() {
+    clearTimeout(noticeTimer);
+}
+function scheduleNotice() {
+    clearTimeout(noticeTimer);
+    if (!notice.value) return;
+    noticeTimer = setTimeout(() => { notice.value = null; }, notice.value.type === "error" ? 10000 : 4000);
+}
+watch(notice, (value) => {
+    if (value) noticeKey.value++;
+    scheduleNotice();
+});
 const section = ref("interventions");
 const tab = ref("hosts");
 const historyFilter = ref("all");
@@ -2062,6 +2093,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
     window.clearInterval(timer);
+    clearTimeout(noticeTimer);
     window.removeEventListener("beforeunload", beforeUnload);
 });
 </script>

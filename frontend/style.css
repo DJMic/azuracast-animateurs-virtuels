@@ -43,3 +43,22 @@
     bottom: 0;
     z-index: 10;
 }
+
+/* Messages, as AzuraCast's notifications (above the plugin's windows). */
+.animateurs-virtuels-app .av-toasts {
+    z-index: 1090;
+}
+.animateurs-virtuels-app .av-toasts .toast {
+    width: 380px;
+    max-width: calc(100vw - 2rem);
+    font-size: 1rem;
+}
+.animateurs-virtuels-app .av-toast-enter-active,
+.animateurs-virtuels-app .av-toast-leave-active {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.animateurs-virtuels-app .av-toast-enter-from,
+.animateurs-virtuels-app .av-toast-leave-to {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+}

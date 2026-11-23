@@ -144,6 +144,54 @@ final class MediaLibrary
     }
 
     /**
+     * Takes out of the chronicle's playlist the versions older than its validity, when no newer
+     * version replaced them (failed generation, no new content, server stopped…). The files stay
+     * in the media library until they are deleted after "retention_days".
+     *
+     * @return array<int, array{path: string, created_at: int}> versions taken out of the playlist
+     */
+    public function withdrawExpired(Station $station, array $chronicle, int $now): array
+    {
+        $chronicleId = (string)$chronicle['id'];
+        $expired = ChronicleSettings::expired($chronicle, $this->registry($station, $chronicleId), $now);
+        if ($expired === []) {
+            return [];
+        }
+
+        $this->database->prepare();
+        $playlist = $this->em->find(StationPlaylist::class, (int)$chronicle['playlist_id']);
+        $withdrawn = [];
+        if ($playlist instanceof StationPlaylist && $playlist->station->id === $station->id) {
+            foreach ($this->registry($station, $chronicleId) as $file) {
+                if (!in_array((int)$file['media_id'], $expired, true)) {
+                    continue;
+                }
+                $media = $this->em->find(StationMedia::class, (int)$file['media_id']);
+                $spm = $media instanceof StationMedia ? $this->spmRepo->findByPlaylistAndMedia($playlist, $media) : null;
+                if ($spm !== null) {
+                    $this->queueRepo->clearForMediaAndPlaylist($media, $playlist);
+                    $this->em->remove($spm);
+                    $withdrawn[] = ['path' => (string)$file['path'], 'created_at' => (int)$file['created_at']];
+                }
+            }
+            $this->em->flush();
+        }
+
+        // Marked once, so that the database is not asked again every minute.
+        $this->updateRegistry($station, $chronicleId, static function (array $files) use ($expired, $now): array {
+            foreach ($files as &$file) {
+                if (in_array((int)$file['media_id'], $expired, true)) {
+                    $file['withdrawn_at'] = $now;
+                }
+            }
+
+            return $files;
+        });
+
+        return $withdrawn;
+    }
+
+    /**
      * Deletes this chronicle's files older than $days (never the newest one).
      *
      * @return int number of deleted files

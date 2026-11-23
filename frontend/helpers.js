@@ -27,6 +27,7 @@ export const STATUSES = {
     done: {label: "Prête", cls: "text-bg-success"},
     failed: {label: "Échec", cls: "text-bg-danger"},
     skipped: {label: "Annulée", cls: "text-bg-warning"},
+    withdrawn: {label: "Retirée", cls: "text-bg-warning"},
 };
 
 export const ELEVENLABS_MODELS = [

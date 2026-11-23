@@ -1,5 +1,10 @@
 # Changements
 
+## 1.7.0 – 2026-11-23
+
+- **Durée de validité des chroniques.** Nouveau réglage « Retirer de la playlist après (heures) » dans l'onglet de publication d'une chronique. Si aucune nouvelle version n'a remplacé la version diffusée dans ce délai (génération en échec, crédits épuisés, source sans nouveauté, serveur arrêté…), elle est retirée de la playlist et des passages déjà prévus dans la file d'attente. Un horoscope de la veille ne repasse donc plus. Le fichier reste dans les médias ; l'historique indique le retrait (statut « Retirée »). 0 = jamais (valeur par défaut, comme avant).
+- **Messages dans le style d'AzuraCast.** Les confirmations et les erreurs s'affichent en notification en haut à droite, en vert ou en rouge, et se ferment seules : après 4 secondes pour une confirmation, 10 secondes pour une erreur (pause tant que la souris est dessus).
+
 ## 1.6.0 – 2026-11-22
 
 - **Historique paginé.** 25, 50 ou 100 lignes par page, avec la navigation en haut et en bas du tableau. Tout l'historique conservé est accessible, et plus seulement les 200 dernières lignes. Le filtre Interventions / Chroniques s'applique à l'ensemble de l'historique.

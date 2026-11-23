@@ -13,12 +13,14 @@ use Plugin\AzuracastAnimateursVirtuels\Service\Database;
 use Plugin\AzuracastAnimateursVirtuels\Service\Generator;
 use Plugin\AzuracastAnimateursVirtuels\Service\Jobs;
 use Plugin\AzuracastAnimateursVirtuels\Service\Launcher;
+use Plugin\AzuracastAnimateursVirtuels\Service\MediaLibrary;
 use Plugin\AzuracastAnimateursVirtuels\Service\Store;
 use Throwable;
 
 /**
  * Every minute (AzuraCast synchronization):
  *  - generates the queued interventions that were not generated right away;
+ *  - takes out of their playlist the chronicles whose validity has passed;
  *  - once an hour, deletes clips and history older than the retention period.
  */
 final class GenerateTask extends AbstractTask
@@ -26,6 +28,7 @@ final class GenerateTask extends AbstractTask
     public function __construct(
         private readonly Generator $generator,
         private readonly ChronicleGenerator $chronicles,
+        private readonly MediaLibrary $mediaLibrary,
         private readonly Launcher $launcher,
         private readonly Jobs $jobs,
         private readonly Store $store,
@@ -94,6 +97,30 @@ final class GenerateTask extends AbstractTask
             if ($slot !== null) {
                 $job = $this->chronicles->queue($station, $chronicle, 'schedule', $slot);
                 $this->launcher->start($stationId, (string)$job['id'], 0);
+            }
+        }
+
+        // Chronicles past their validity without a newer version: out of their playlist.
+        foreach ($settings['chronicles'] as $chronicle) {
+            try {
+                $withdrawn = $this->mediaLibrary->withdrawExpired($station, $chronicle, $now->getTimestamp());
+            } catch (Throwable $e) {
+                $this->logger->error('Animateurs virtuels : retrait de la chronique « ' . $chronicle['name'] . ' » impossible : '
+                    . $e->getMessage());
+                continue;
+            }
+            foreach ($withdrawn as $version) {
+                $this->jobs->create($stationId, $now, [
+                    'kind' => 'chronicle',
+                    'status' => 'withdrawn',
+                    'chronicle_id' => $chronicle['id'],
+                    'chronicle_name' => $chronicle['name'],
+                    'host_name' => $chronicle['name'],
+                    'prompt_name' => 'Validité dépassée',
+                    'library_note' => 'Version du ' . $now->setTimestamp($version['created_at'])->format('d/m/Y à H:i')
+                        . ' (' . basename($version['path']) . ') retirée de sa playlist : aucune nouvelle version depuis '
+                        . $chronicle['valid_hours'] . ' h. Le fichier reste dans les médias.',
+                ]);
             }
         }
 
