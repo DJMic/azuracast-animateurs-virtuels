@@ -716,6 +716,95 @@
                                         Toutes les heures pile
                                     </button>
                                 </div>
+
+                                <div
+                                    v-if="slot.times.length"
+                                    class="mt-3"
+                                >
+                                    <div class="small mb-1">
+                                        Prompts imposés à une heure fixe :
+                                    </div>
+                                    <div
+                                        v-for="(rule, ri) in slot.fixed_prompts"
+                                        :key="ri"
+                                        class="d-flex flex-wrap gap-2 align-items-center mb-2"
+                                    >
+                                        <select
+                                            v-model="rule.time"
+                                            class="form-select form-select-sm w-auto"
+                                            :aria-label="`Heure du prompt imposé ${ri + 1}`"
+                                        >
+                                            <option
+                                                v-for="t in sortedTimes(slot)"
+                                                :key="t"
+                                                :value="t"
+                                            >
+                                                {{ t }}
+                                            </option>
+                                        </select>
+                                        <div
+                                            class="btn-group btn-group-sm av-days"
+                                            role="group"
+                                            :aria-label="`Jours du prompt imposé ${ri + 1}`"
+                                        >
+                                            <template
+                                                v-for="d in days.filter((x) => slot.days.includes(x.value))"
+                                                :key="d.value"
+                                            >
+                                                <input
+                                                    :id="`av-s-${index}-r${ri}-d${d.value}`"
+                                                    v-model="rule.days"
+                                                    type="checkbox"
+                                                    class="btn-check"
+                                                    :value="d.value"
+                                                    autocomplete="off"
+                                                >
+                                                <label
+                                                    class="btn btn-outline-secondary"
+                                                    :for="`av-s-${index}-r${ri}-d${d.value}`"
+                                                    :title="d.label"
+                                                >{{ d.short }}</label>
+                                            </template>
+                                        </div>
+                                        <span class="small text-body-secondary">→</span>
+                                        <select
+                                            v-model="rule.prompt_id"
+                                            class="form-select form-select-sm w-auto"
+                                            :aria-label="`Prompt imposé ${ri + 1}`"
+                                        >
+                                            <option value="">
+                                                Choisir un prompt…
+                                            </option>
+                                            <option
+                                                v-for="p in form.prompts.filter((x) => x.enabled && x.text.trim() !== '')"
+                                                :key="p.id"
+                                                :value="p.id"
+                                            >
+                                                {{ p.name }}
+                                            </option>
+                                        </select>
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-outline-danger"
+                                            aria-label="Retirer ce prompt imposé"
+                                            @click="slot.fixed_prompts.splice(ri, 1)"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        @click="slot.fixed_prompts.push({ time: sortedTimes(slot)[0], days: [], prompt_id: '' })"
+                                    >
+                                        + Imposer un prompt
+                                    </button>
+                                    <div class="form-text">
+                                        À cette heure fixe, l'animateur utilise toujours ce prompt, les jours cochés
+                                        (aucun jour coché = tous les jours de la tranche). Les autres heures fixes tirent
+                                        un prompt au hasard, comme d'habitude.
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <button
@@ -812,12 +901,23 @@ const voiceMessage = ref({ type: "", text: "" });
 const previewing = ref(false);
 const previewMessages = ref(null);
 
+// Prompt ids are made here, so that a new prompt can be imposed at a fixed time before saving.
+const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
+form.prompts.forEach((p) => { if (!p.id) p.id = newId(); });
+form.slots.forEach((slot) => {
+    slot.fixed_prompts = (slot.fixed_prompts || []).map((r) => ({ ...r, days: [...(r.days || [])] }));
+});
+
+function sortedTimes(slot) {
+    return [...new Set(slot.times.filter((t) => t))].sort();
+}
+
 function addPrompt() {
-    form.prompts.push({ id: "", name: `Prompt ${form.prompts.length + 1}`, usage: "all", enabled: true, timeless: false, text: "" });
+    form.prompts.push({ id: newId(), name: `Prompt ${form.prompts.length + 1}`, usage: "all", enabled: true, timeless: false, text: "" });
 }
 
 function addSlot() {
-    form.slots.push({ id: "", days: [1, 2, 3, 4, 5, 6, 7], start: "06:00", end: "10:00", every_n: 4, times: [] });
+    form.slots.push({ id: "", days: [1, 2, 3, 4, 5, 6, 7], start: "06:00", end: "10:00", every_n: 4, times: [], fixed_prompts: [] });
 }
 
 function addHourly(slot) {

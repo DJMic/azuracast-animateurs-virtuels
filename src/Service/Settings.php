@@ -482,6 +482,7 @@ final class Settings
                 'end' => $end,
                 'every_n' => $everyN,
                 'times' => $times,
+                'fixed_prompts' => self::fixedPrompts($slot['fixed_prompts'] ?? [], $times, $days, $host['prompts'], $label),
             ];
         }
 
@@ -659,6 +660,57 @@ final class Settings
         }
 
         return $value;
+    }
+
+    /**
+     * Prompts imposed at fixed times of a slot: [{time, days, prompt_id}], days empty = every day of
+     * the slot. A row without prompt is ignored.
+     */
+    private static function fixedPrompts(mixed $in, array $times, array $slotDays, array $prompts, string $label): array
+    {
+        $byId = array_column($prompts, null, 'id');
+        $rules = [];
+        $taken = [];
+        foreach (is_array($in) ? $in : [] as $rule) {
+            if (!is_array($rule) || trim((string)($rule['prompt_id'] ?? '')) === '') {
+                continue;
+            }
+            $time = self::time($rule['time'] ?? '', $label . ' : prompt imposé');
+            if (!in_array($time, $times, true)) {
+                throw new InvalidArgumentException(
+                    $label . ' : un prompt est imposé à ' . $time . ', qui n\'est pas une des heures fixes de la tranche.'
+                );
+            }
+            $prompt = $byId[(string)$rule['prompt_id']] ?? null;
+            if ($prompt === null) {
+                throw new InvalidArgumentException(
+                    $label . ' : le prompt imposé à ' . $time . ' n\'existe plus (supprimé, ou sans texte).'
+                );
+            }
+            if (!$prompt['enabled']) {
+                throw new InvalidArgumentException(
+                    $label . ' : le prompt « ' . $prompt['name'] . ' » imposé à ' . $time . ' est désactivé.'
+                );
+            }
+            $days = array_values(array_intersect(
+                $slotDays,
+                array_map('intval', is_array($rule['days'] ?? null) ? $rule['days'] : [])
+            ));
+            if (count($days) === count($slotDays)) {
+                $days = [];
+            }
+            foreach ($days === [] ? $slotDays : $days as $day) {
+                if (isset($taken[$time . '|' . $day])) {
+                    throw new InvalidArgumentException(
+                        $label . ' : deux prompts sont imposés le même jour à ' . $time . '.'
+                    );
+                }
+                $taken[$time . '|' . $day] = true;
+            }
+            $rules[] = ['time' => $time, 'days' => $days, 'prompt_id' => (string)$prompt['id']];
+        }
+
+        return $rules;
     }
 
     public static function uid(mixed $value): string

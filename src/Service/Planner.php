@@ -89,7 +89,8 @@ final class Planner
      * @param bool $canPlace false if a clip could not be ready in time here: nothing is decided,
      *                       a due intervention waits for the next item
      *
-     * @return array{0: ?array{kind: string, time: ?string}, 1: array} decision and new state
+     * @return array{0: ?array{kind: string, time: ?string, prompt_id?: ?string}, 1: array} decision
+     *         (prompt_id: prompt imposed at that fixed time, if any) and new state
      */
     public static function decide(
         array $state,
@@ -119,7 +120,11 @@ final class Planner
             $at = $start->add(new DateInterval('PT' . self::minutesFromStart($time, $slot['start']) . 'M'));
             $late = $playAt->getTimestamp() - $at->getTimestamp();
             if ($late >= 0 && $late <= self::FIXED_GRACE_SECONDS && $canPlace) {
-                $decision = ['kind' => 'fixed', 'time' => $time];
+                $decision = [
+                    'kind' => 'fixed',
+                    'time' => $time,
+                    'prompt_id' => self::fixedPrompt($slot, $time, (int)$at->format('N')),
+                ];
                 $done[$key] = $playAt->getTimestamp();
                 break;
             }
@@ -140,6 +145,18 @@ final class Planner
         $state['done'] = array_filter($done, static fn(int $ts): bool => $ts >= $limit);
 
         return [$decision, $state];
+    }
+
+    /** Prompt imposed at this fixed time on this day (1 = Monday … 7 = Sunday), or null. */
+    public static function fixedPrompt(array $slot, string $time, int $day): ?string
+    {
+        foreach ($slot['fixed_prompts'] ?? [] as $rule) {
+            if ($rule['time'] === $time && ($rule['days'] === [] || in_array($day, $rule['days'], true))) {
+                return (string)$rule['prompt_id'];
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -269,6 +269,36 @@ check('chevauchement : le premier gagne', Planner::onAir($twoHosts, $at('2026-11
 $twoHosts['hosts'][0]['enabled'] = false;
 check('animateur désactivé ignoré', Planner::onAir($twoHosts, $at('2026-11-16 07:00'))['host']['name'], 'Max');
 
+// Prompt imposed at a fixed time on chosen days.
+$imposed = $input;
+$imposed['hosts'][0]['prompts'][0]['id'] = 'promptweekend';
+$imposed['hosts'][0]['slots'][0]['times'] = ['07:00', '08:00'];
+$imposed['hosts'][0]['slots'][0]['fixed_prompts'] = [
+    ['time' => '07:00', 'days' => [5], 'prompt_id' => 'promptweekend'],
+    ['time' => '08:00', 'days' => [], 'prompt_id' => ''],
+];
+$impSettings = Settings::fromInput($imposed, []);
+$impSlot = $impSettings['hosts'][0]['slots'][0];
+check('prompt imposé : enregistré (ligne vide ignorée)', $impSlot['fixed_prompts'], [['time' => '07:00', 'days' => [5], 'prompt_id' => 'promptweekend']]);
+check('prompt imposé : vendredi 7h', Planner::fixedPrompt($impSlot, '07:00', 5), 'promptweekend');
+check('prompt imposé : lundi 7h, au hasard', Planner::fixedPrompt($impSlot, '07:00', 1), null);
+check('prompt imposé : vendredi 8h, au hasard', Planner::fixedPrompt($impSlot, '08:00', 5), null);
+[$impDecision] = Planner::decide(['slot' => null], Planner::onAir($impSettings, $at('2026-11-20 07:01')), $at('2026-11-20 07:01'), true);
+check('prompt imposé : dans la décision du vendredi', $impDecision['prompt_id'], 'promptweekend');
+$bad = $imposed;
+$bad['hosts'][0]['slots'][0]['fixed_prompts'] = [['time' => '09:30', 'days' => [], 'prompt_id' => 'promptweekend']];
+throws('prompt imposé : heure hors des heures fixes', static fn() => Settings::fromInput($bad, []), 'pas une des heures fixes');
+$bad['hosts'][0]['slots'][0]['fixed_prompts'] = [['time' => '07:00', 'days' => [], 'prompt_id' => 'inconnu123']];
+throws('prompt imposé : prompt inconnu', static fn() => Settings::fromInput($bad, []), 'n\'existe plus');
+$bad['hosts'][0]['slots'][0]['fixed_prompts'] = [
+    ['time' => '07:00', 'days' => [], 'prompt_id' => 'promptweekend'],
+    ['time' => '07:00', 'days' => [5], 'prompt_id' => 'promptweekend'],
+];
+throws('prompt imposé : deux règles le même jour', static fn() => Settings::fromInput($bad, []), 'même jour');
+$all = $imposed;
+$all['hosts'][0]['slots'][0]['fixed_prompts'] = [['time' => '07:00', 'days' => [1, 2, 3, 4, 5], 'prompt_id' => 'promptweekend']];
+check('prompt imposé : tous les jours de la tranche = []', Settings::fromInput($all, [])['hosts'][0]['slots'][0]['fixed_prompts'][0]['days'], []);
+
 // Every 4 songs: songs 1-4 then an intervention before the 5th.
 $state = [];
 $decisions = [];
@@ -290,7 +320,7 @@ $state = ['slot' => null];
 [$d2, $state] = Planner::decide($state, Planner::onAir($settings, $at('2026-11-16 07:01')), $at('2026-11-16 07:01'), true);
 [$d3, $state] = Planner::decide($state, Planner::onAir($settings, $at('2026-11-16 07:04')), $at('2026-11-16 07:04'), true);
 check('heure fixe : avant', $d1, null);
-check('heure fixe : déclenchée', $d2, ['kind' => 'fixed', 'time' => '07:00']);
+check('heure fixe : déclenchée', $d2, ['kind' => 'fixed', 'time' => '07:00', 'prompt_id' => null]);
 check('heure fixe : une seule fois', $d3, null);
 check('heure fixe : compteur remis à 1', $state['count'], 2);
 [$late, $state] = Planner::decide(['slot' => null], Planner::onAir($settings, $at('2026-11-16 07:20')), $at('2026-11-16 07:20'), true);

@@ -1397,7 +1397,9 @@
                                         {{ job.host_name }}
                                         <div class="text-body-secondary">
                                             {{ kinds[job.kind] || job.kind }}<template v-if="job.prompt_name">
-                                                · {{ job.prompt_name }}
+                                                · {{ job.prompt_name }}<template v-if="job.prompt_imposed">
+                                                    (imposé)
+                                                </template>
                                             </template>
                                             <template v-if="job.account_name && !job.reused">
                                                 · {{ job.account_name }}

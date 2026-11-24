@@ -179,7 +179,14 @@ final class QueueSubscriber implements EventSubscriberInterface
             }
             $reuseOnly = true;
         }
-        $prompt = Planner::pickPrompt($host, $decision['kind']);
+        // A prompt imposed at this fixed time, if it is still active; otherwise one at random.
+        $prompt = null;
+        foreach ($host['prompts'] as $candidate) {
+            if (!empty($decision['prompt_id']) && $candidate['id'] === $decision['prompt_id'] && $candidate['enabled']) {
+                $prompt = $candidate;
+            }
+        }
+        $prompt ??= Planner::pickPrompt($host, $decision['kind']);
         if ($prompt === null) {
             return null;
         }
@@ -204,6 +211,7 @@ final class QueueSubscriber implements EventSubscriberInterface
             'host_name' => $host['name'],
             'prompt_id' => $prompt['id'],
             'prompt_name' => $prompt['name'],
+            'prompt_imposed' => !empty($decision['prompt_id']) && $prompt['id'] === $decision['prompt_id'],
             'variables' => $variables,
             'queued' => true,
             'reuse_only' => $reuseOnly,

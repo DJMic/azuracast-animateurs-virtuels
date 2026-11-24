@@ -1,5 +1,10 @@
 # Changements
 
+## 1.8.0 – 2026-11-24
+
+- **Prompts imposés à une heure fixe.** Dans l'onglet « Tranches horaires » d'un animateur, « + Imposer un prompt » associe une heure fixe de la tranche, des jours (aucun coché = tous les jours de la tranche) et un prompt. À cette heure-là, ces jours-là, l'animateur utilise toujours ce prompt ; les autres heures fixes tirent un prompt au hasard, comme avant. L'historique indique « (imposé) » à côté du nom du prompt.
+- Les nouveaux prompts reçoivent leur identifiant dès leur création, pour pouvoir être imposés avant l'enregistrement.
+
 ## 1.7.0 – 2026-11-23
 
 - **Durée de validité des chroniques.** Nouveau réglage « Retirer de la playlist après (heures) » dans l'onglet de publication d'une chronique. Si aucune nouvelle version n'a remplacé la version diffusée dans ce délai (génération en échec, crédits épuisés, source sans nouveauté, serveur arrêté…), elle est retirée de la playlist et des passages déjà prévus dans la file d'attente. Un horoscope de la veille ne repasse donc plus. Le fichier reste dans les médias ; l'historique indique le retrait (statut « Retirée »). 0 = jamais (valeur par défaut, comme avant).

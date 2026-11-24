@@ -24,6 +24,7 @@ Chaque station reçoit une entrée **« Animateurs virtuels »** dans son menu, 
   - **toutes les N chansons** (les jingles ne comptent pas) ;
   - et/ou à des **heures fixes** (par exemple 7:00, 7:30, 8:00). Il prend alors la parole à la fin du morceau en cours à cette heure-là.
 - **Plusieurs prompts par animateur.** À chaque intervention, l'un d'eux est tiré au hasard. Un prompt peut être réservé aux enchaînements ou aux heures fixes.
+- **Prompts imposés** (depuis la version 1.8.0). Dans une tranche horaire, une heure fixe peut toujours utiliser le même prompt, certains jours ou tous les jours de la tranche. Par exemple « vendredi 17:00 → *Bon week-end* ». Les autres heures fixes tirent un prompt au hasard.
 - **Variables** utilisables dans les textes : `{animateur}`, `{station}`, `{heure}`, `{jour}`, `{date}`, `{moment}`, `{titre_precedent}`, `{artiste_precedent}`, `{titre_suivant}`, `{artiste_suivant}`, `{duree}`, `{mots}`, `{langue}`.
 - **Écriture radio** (depuis la version 1.2.0) : DeepSeek reçoit des règles d'écriture pour l'oreille (style oral, idées reliées pour garder l'élan de la voix, exclamations et questions). Ces règles s'adaptent au modèle de voix : une ou deux indications de jeu comme `[warmly]` ou `[chuckles]` avec Eleven v4 et v3, une ou deux pauses `<break time="0.5s" />` avec les autres modèles. Option activée par défaut, dans « Consignes générales ».
 - **Jusqu'à 5 comptes ElevenLabs par station** (depuis la version 1.3.0). Chaque animateur utilise les voix et les crédits de son compte.
