@@ -403,6 +403,14 @@
                                         </button>
                                     </div>
                                 </div>
+                                <div
+                                    v-if="imposedAt(prompt.id).length"
+                                    class="alert alert-info py-1 px-2 small mb-2"
+                                >
+                                    Imposé à {{ imposedAt(prompt.id).join(', ') }} (onglet « Tranches horaires ») : il ne
+                                    sert qu'à ces moments-là et n'est jamais tiré au hasard. Son usage ci-dessus ne compte
+                                    pas.
+                                </div>
                                 <textarea
                                     v-model="prompt.text"
                                     class="form-control"
@@ -801,8 +809,9 @@
                                     </button>
                                     <div class="form-text">
                                         À cette heure fixe, l'animateur utilise toujours ce prompt, les jours cochés
-                                        (aucun jour coché = tous les jours de la tranche). Les autres heures fixes tirent
-                                        un prompt au hasard, comme d'habitude.
+                                        (aucun jour coché = tous les jours de la tranche). Un prompt imposé est réservé à
+                                        ses heures : il n'est jamais tiré au hasard ailleurs. Les autres heures fixes
+                                        tirent un prompt au hasard, comme d'habitude.
                                     </div>
                                 </div>
                             </div>
@@ -907,6 +916,19 @@ form.prompts.forEach((p) => { if (!p.id) p.id = newId(); });
 form.slots.forEach((slot) => {
     slot.fixed_prompts = (slot.fixed_prompts || []).map((r) => ({ ...r, days: [...(r.days || [])] }));
 });
+
+// Where a prompt is imposed, e.g. ["Ve 17:00", "Lu–Ve 09:00"] (empty: drawn at random as usual).
+function imposedAt(promptId) {
+    const labels = [];
+    for (const slot of form.slots) {
+        for (const rule of slot.fixed_prompts || []) {
+            if (!promptId || rule.prompt_id !== promptId || !rule.time) continue;
+            const ruleDays = rule.days?.length ? rule.days : slot.days;
+            labels.push(`${days.filter((d) => ruleDays.includes(d.value)).map((d) => d.short).join(" ")} ${rule.time}`);
+        }
+    }
+    return labels;
+}
 
 function sortedTimes(slot) {
     return [...new Set(slot.times.filter((t) => t))].sort();

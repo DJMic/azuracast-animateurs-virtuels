@@ -120,7 +120,7 @@ final class Generator
 
         // Daily limit reached: only a clip of the library can be aired.
         if (!empty($job['reuse_only'])) {
-            $entry = $this->library->take($stationId, $host['id'], $signature, $config, true)
+            $entry = $this->library->take($stationId, $host['id'], $signature, $config, true, Planner::imposedPrompts($host))
                 ?? throw new RuntimeException('Limite quotidienne atteinte et bibliothèque vide.');
 
             return $this->fromLibrary($station, $settings, $host, $job, $entry, 'Limite quotidienne atteinte.');
@@ -135,7 +135,7 @@ final class Generator
             $share = Library::reuseShare($config, $size);
             $job['reuse_share'] = $share;
             if ($share > 0 && mt_rand() / mt_getrandmax() < $share) {
-                $entry = $this->library->take($stationId, $host['id'], $signature, $config);
+                $entry = $this->library->take($stationId, $host['id'], $signature, $config, false, Planner::imposedPrompts($host));
                 if ($entry !== null) {
                     return $this->fromLibrary($station, $settings, $host, $job, $entry);
                 }
@@ -147,7 +147,7 @@ final class Generator
         } catch (Throwable $e) {
             // Service down, no credit…: a clip of the library rather than nothing.
             if (!empty($config['enabled']) && !empty($config['fallback']) && $job['kind'] !== 'test') {
-                $entry = $this->library->take($stationId, $host['id'], $signature, $config, true);
+                $entry = $this->library->take($stationId, $host['id'], $signature, $config, true, Planner::imposedPrompts($host));
                 if ($entry !== null) {
                     $this->logger->warning('Animateurs virtuels : ' . $e->getMessage() . ' → clip de la bibliothèque.');
 
@@ -207,7 +207,9 @@ final class Generator
             // 3. Timeless text: the voice joins the library (whatever the reuse setting).
             if (!empty($prompt['timeless'])) {
                 $marker = Library::timeMarker($text);
-                if ($marker !== null) {
+                if (isset(Planner::imposedPrompts($host)[$prompt['id']])) {
+                    $job['library_note'] = 'Non ajoutée à la bibliothèque : prompt imposé à une heure fixe.';
+                } elseif ($marker !== null) {
                     $job['library_note'] = 'Non ajoutée à la bibliothèque : contient « ' . $marker . ' ».';
                 } else {
                     try {
@@ -216,6 +218,7 @@ final class Generator
                             'signature' => $signature,
                             'voice_duration' => $job['voice_duration'],
                             'characters' => $job['characters'],
+                            'prompt_id' => $prompt['id'],
                             'prompt_name' => $prompt['name'],
                             'source_job' => $job['id'],
                         ], (int)$config['max_size']);

@@ -1,5 +1,11 @@
 # Changements
 
+## 1.8.1 – 2026-11-24
+
+- **Un prompt imposé est réservé à ses heures.** Un prompt imposé à une heure fixe n'est plus jamais tiré au hasard, ni entre deux morceaux ni aux autres heures fixes, quel que soit son usage. Sa fiche dans l'onglet « Prompts » indique où il est imposé.
+- Ses clips ne vont pas dans la bibliothèque, et les clips qu'il y avait déjà ajoutés ne sont plus réutilisés ailleurs.
+- L'enregistrement est refusé si tous les prompts actifs d'un animateur sont imposés : il en faut au moins un pour les autres interventions.
+
 ## 1.8.0 – 2026-11-24
 
 - **Prompts imposés à une heure fixe.** Dans l'onglet « Tranches horaires » d'un animateur, « + Imposer un prompt » associe une heure fixe de la tranche, des jours (aucun coché = tous les jours de la tranche) et un prompt. À cette heure-là, ces jours-là, l'animateur utilise toujours ce prompt ; les autres heures fixes tirent un prompt au hasard, comme avant. L'historique indique « (imposé) » à côté du nom du prompt.

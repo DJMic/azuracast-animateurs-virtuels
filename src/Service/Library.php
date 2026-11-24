@@ -136,11 +136,27 @@ final class Library
      *
      * @param array<int, array> $entries
      */
-    public static function choose(array $entries, string $signature, array $config, int $now, bool $ignoreGap = false): ?array
-    {
+    /**
+     * @param array<string, string> $excluded prompts whose clips are not reused (id => name; clips
+     *                                        made before version 1.8.1 only know the prompt's name)
+     */
+    public static function choose(
+        array $entries,
+        string $signature,
+        array $config,
+        int $now,
+        bool $ignoreGap = false,
+        array $excluded = []
+    ): ?array {
         $gap = (int)$config['min_gap_days'] * 86400;
-        $candidates = array_values(array_filter($entries, static function (array $e) use ($signature, $gap, $now, $ignoreGap): bool {
+        $names = array_filter(array_values($excluded), static fn(string $n): bool => $n !== '');
+        $candidates = array_values(array_filter($entries, static function (array $e) use ($signature, $gap, $now, $ignoreGap, $excluded, $names): bool {
             if (($e['signature'] ?? '') !== $signature) {
+                return false;
+            }
+            if (isset($e['prompt_id'])
+                ? isset($excluded[(string)$e['prompt_id']])
+                : in_array((string)($e['prompt_name'] ?? ''), $names, true)) {
                 return false;
             }
             $last = isset($e['last_used_at']) ? (int)$e['last_used_at'] : 0;
@@ -260,10 +276,16 @@ final class Library
      * Picks an entry and records the use (under lock, so two generations never take the same one).
      * Entries that reach max_uses are retired after this use.
      */
-    public function take(int $stationId, string $hostId, string $signature, array $config, bool $ignoreGap = false): ?array
-    {
-        return $this->withLock($stationId, $hostId, function () use ($stationId, $hostId, $signature, $config, $ignoreGap): ?array {
-            $entry = self::choose($this->entries($stationId, $hostId), $signature, $config, time(), $ignoreGap);
+    public function take(
+        int $stationId,
+        string $hostId,
+        string $signature,
+        array $config,
+        bool $ignoreGap = false,
+        array $excluded = []
+    ): ?array {
+        return $this->withLock($stationId, $hostId, function () use ($stationId, $hostId, $signature, $config, $ignoreGap, $excluded): ?array {
+            $entry = self::choose($this->entries($stationId, $hostId), $signature, $config, time(), $ignoreGap, $excluded);
             if ($entry === null) {
                 return null;
             }

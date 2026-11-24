@@ -498,6 +498,11 @@ final class Settings
             if (!array_filter($host['prompts'], static fn(array $p): bool => $p['enabled'])) {
                 throw new InvalidArgumentException('« ' . $name . ' » doit avoir au moins un prompt actif.');
             }
+            $imposed = Planner::imposedPrompts($host);
+            if (!array_filter($host['prompts'], static fn(array $p): bool => $p['enabled'] && !isset($imposed[$p['id']]))) {
+                throw new InvalidArgumentException('« ' . $name . ' » : tous ses prompts actifs sont imposés à des heures '
+                    . 'fixes. Gardez au moins un prompt non imposé pour les autres interventions.');
+            }
         }
 
         return $host;

@@ -147,6 +147,25 @@ final class Planner
         return [$decision, $state];
     }
 
+    /**
+     * Prompts imposed at a fixed time somewhere in the host's slots (id => name). They are kept
+     * for those times: never drawn at random, and their clips are not reused from the library.
+     *
+     * @return array<string, string>
+     */
+    public static function imposedPrompts(array $host): array
+    {
+        $names = array_column($host['prompts'] ?? [], 'name', 'id');
+        $imposed = [];
+        foreach ($host['slots'] ?? [] as $slot) {
+            foreach ($slot['fixed_prompts'] ?? [] as $rule) {
+                $imposed[(string)$rule['prompt_id']] = (string)($names[$rule['prompt_id']] ?? '');
+            }
+        }
+
+        return $imposed;
+    }
+
     /** Prompt imposed at this fixed time on this day (1 = Monday … 7 = Sunday), or null. */
     public static function fixedPrompt(array $slot, string $time, int $day): ?string
     {
@@ -161,11 +180,16 @@ final class Planner
 
     /**
      * Random active prompt for this kind of intervention ("between", "fixed", "test"...).
-     * Prompts reserved for the other kind are only used if nothing else is available.
+     * Prompts reserved for the other kind are only used if nothing else is available. Prompts
+     * imposed at a fixed time are never drawn for "between" and "fixed" interventions.
      */
     public static function pickPrompt(array $host, string $kind, ?string $promptId = null): ?array
     {
-        $active = array_values(array_filter($host['prompts'] ?? [], static fn(array $p): bool => !empty($p['enabled'])));
+        $imposed = in_array($kind, ['between', 'fixed'], true) ? self::imposedPrompts($host) : [];
+        $active = array_values(array_filter(
+            $host['prompts'] ?? [],
+            static fn(array $p): bool => !empty($p['enabled']) && !isset($imposed[$p['id']])
+        ));
         if ($promptId !== null && $promptId !== '') {
             foreach ($host['prompts'] ?? [] as $prompt) {
                 if ($prompt['id'] === $promptId) {

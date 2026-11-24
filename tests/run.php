@@ -299,6 +299,29 @@ $all = $imposed;
 $all['hosts'][0]['slots'][0]['fixed_prompts'] = [['time' => '07:00', 'days' => [1, 2, 3, 4, 5], 'prompt_id' => 'promptweekend']];
 check('prompt imposé : tous les jours de la tranche = []', Settings::fromInput($all, [])['hosts'][0]['slots'][0]['fixed_prompts'][0]['days'], []);
 
+// An imposed prompt is never drawn at random.
+$impHost = $impSettings['hosts'][0];
+check('prompt imposé : liste', Planner::imposedPrompts($impHost), ['promptweekend' => $impHost['prompts'][0]['name']]);
+$drawn = [];
+for ($i = 0; $i < 200; $i++) {
+    $drawn[Planner::pickPrompt($impHost, 'between')['id']] = true;
+    $drawn[Planner::pickPrompt($impHost, 'fixed')['id']] = true;
+}
+check('prompt imposé : jamais tiré au hasard', isset($drawn['promptweekend']), false);
+check('prompt imposé : utilisé quand il est demandé', Planner::pickPrompt($impHost, 'fixed', 'promptweekend')['id'], 'promptweekend');
+$onlyImposed = $imposed;
+$onlyImposed['hosts'][0]['prompts'] = [$imposed['hosts'][0]['prompts'][0]];
+$onlyImposed['hosts'][0]['slots'][0]['fixed_prompts'] = [['time' => '07:00', 'days' => [5], 'prompt_id' => 'promptweekend']];
+throws('prompt imposé : il faut un prompt non imposé', static fn() => Settings::fromInput($onlyImposed, []), 'non imposé');
+$libEntries = [
+    ['id' => 'a', 'signature' => 'sig', 'prompt_id' => 'promptweekend', 'prompt_name' => 'X', 'uses' => 0],
+    ['id' => 'b', 'signature' => 'sig', 'prompt_name' => 'Week-end', 'uses' => 0],
+    ['id' => 'c', 'signature' => 'sig', 'prompt_id' => 'autre', 'prompt_name' => 'Ambiance', 'uses' => 0],
+];
+$libConfig = ['min_gap_days' => 0];
+check('prompt imposé : ses clips ne sont pas réutilisés', Library::choose($libEntries, 'sig', $libConfig, time(), false, ['promptweekend' => 'Week-end'])['id'], 'c');
+check('prompt imposé : sans exclusion, tout est possible', Library::choose(array_slice($libEntries, 0, 1), 'sig', $libConfig, time())['id'], 'a');
+
 // Every 4 songs: songs 1-4 then an intervention before the 5th.
 $state = [];
 $decisions = [];
